@@ -658,8 +658,8 @@ body.has-conversation .welcome {
 }
 
 body.has-conversation .stage-backdrop {
-  height: calc(var(--topbar-h) + 24vh);
-  opacity: 0.3;
+  height: calc(var(--topbar-h) + 30vh);
+  opacity: 0.42;
 }
 
 /* --- decorative HUD framing around the core --------------------- */
@@ -676,8 +676,8 @@ body.has-conversation .stage-backdrop {
 }
 
 body.has-conversation .stage-hud {
-  opacity: 0.12;
-  height: calc(var(--topbar-h) + 24vh);
+  opacity: 0.16;
+  height: calc(var(--topbar-h) + 30vh);
 }
 
 .hud-corner {
@@ -3288,8 +3288,9 @@ body.has-conversation .chat .msg .msg-body {
   }
 
   .welcome {
+    justify-content: center;
     gap: 9px;
-    padding: calc(var(--hero-total) - 34px) 0 10px;
+    padding: calc(var(--hero-total) - 30px) 0 12px;
   }
 
   .welcome h1 {
@@ -3330,11 +3331,20 @@ body.has-conversation .chat .msg .msg-body {
   }
 
   .quick-row {
-    display: none;
+    gap: 6px;
+    margin-top: 0;
+  }
+
+  .quick-chip {
+    padding: 5px 9px;
+    font-size: 10px;
   }
 }
 
 @media (max-width: 780px) and (max-height: 760px) {
+  .quick-row {
+    display: none;
+  }
   .welcome-stats {
     display: none;
   }
@@ -3378,8 +3388,9 @@ body.has-conversation .chat .msg .msg-body {
   }
 
   .welcome {
+    justify-content: center;
     gap: 8px;
-    padding-top: calc(var(--hero-total) - 44px);
+    padding-top: calc(var(--hero-total) - 40px);
   }
 
   .welcome h1 {
