@@ -2,7 +2,7 @@
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 // Tried in order when the /models discovery call is unavailable.
 const GEMINI_MODEL_PREFERENCES = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest', 'gemini-1.5-flash'];
-const GEMINI_SYSTEM_INSTRUCTION = 'You are J.A.R.V.I.S, a friendly personal assistant for Jahirul. Reply naturally in a warm Telugu-English mix, using clear concise language. If you do not know, say so plainly.';
+const GEMINI_SYSTEM_INSTRUCTION = 'You are J.A.R.V.I.S, a friendly personal assistant for Jahirul. Reply naturally in a warm Telugu-English mix, using clear concise language. If you do not know, say so plainly. Flipkart is linked as a browser hand-off: built-in commands can open Flipkart orders, cart, wishlist, account and product searches in a new tab, but you cannot read, change or cancel anything in the Flipkart account. Never ask for Flipkart passwords, OTPs or cookies; when asked about Flipkart data, tell the user the command to use (for example "my Flipkart orders" or "search Flipkart for earphones") instead of pretending to see it.';
 
 const API_KEY_STORAGE = 'jarvis_key';
 let API_KEY = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
@@ -474,6 +474,7 @@ function startNewConversation() {
 function openSettings() {
   settingsPanel.hidden = false;
   settingsScrim.hidden = false;
+  if (typeof renderFlipkartCard === 'function') renderFlipkartCard();
   closeSidebarOnMobile();
   settingsClose.focus();
 }
@@ -537,6 +538,265 @@ if (apiKeyClear) {
   });
 }
 
+// ===== 2.5 CONNECTED ACCOUNTS (FLIPKART) =====
+// Flipkart has no consumer OAuth and its pages cannot be read cross-origin from
+// a static browser app, so "connecting" is a hand-off: JARVIS remembers that the
+// account is linked and opens Flipkart pages in a new tab, where the login
+// already present in this browser applies. No password, OTP or cookie ever
+// reaches this app, and none of it is stored.
+const FLIPKART_LINK_KEY = 'jarvis_flipkart_link_v1';
+const FLIPKART_URLS = Object.freeze({
+  home: 'https://www.flipkart.com/',
+  login: 'https://www.flipkart.com/account/login',
+  orders: 'https://www.flipkart.com/myorders',
+  cart: 'https://www.flipkart.com/viewcart',
+  wishlist: 'https://www.flipkart.com/wishlist',
+  account: 'https://www.flipkart.com/account/?rd=0&link=home_account'
+});
+const FLIPKART_PAGE_LABELS = Object.freeze({
+  home: 'Flipkart',
+  login: 'Flipkart login',
+  orders: 'your Flipkart orders',
+  cart: 'your Flipkart cart',
+  wishlist: 'your Flipkart wishlist',
+  account: 'your Flipkart account'
+});
+
+function readFlipkartLink() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FLIPKART_LINK_KEY) || 'null');
+    if (saved && saved.connected === true) {
+      return {
+        connected: true,
+        since: Number(saved.since) || 0,
+        lastOpenedAt: Number(saved.lastOpenedAt) || 0
+      };
+    }
+  } catch (e) { /* corrupt state simply means "not linked" */ }
+  return { connected: false, since: 0, lastOpenedAt: 0 };
+}
+
+let flipkartLink = readFlipkartLink();
+
+function saveFlipkartLink() {
+  try {
+    localStorage.setItem(FLIPKART_LINK_KEY, JSON.stringify(flipkartLink));
+  } catch (e) { /* storage may be unavailable */ }
+}
+
+const flipkartCard = document.getElementById('flipkart-card');
+const flipkartStatus = document.getElementById('flipkart-status');
+const flipkartDetail = document.getElementById('flipkart-detail');
+const flipkartNote = document.getElementById('flipkart-note');
+const flipkartConnect = document.getElementById('flipkart-connect');
+const flipkartOpen = document.getElementById('flipkart-open');
+const flipkartDisconnect = document.getElementById('flipkart-disconnect');
+const connectorsOpen = document.getElementById('connectors-open');
+const connectorsGroup = document.getElementById('connectors-group');
+const FLIPKART_DEFAULT_DETAIL = flipkartDetail ? flipkartDetail.textContent : '';
+
+function relativeTime(timestamp) {
+  const then = Number(timestamp) || 0;
+  if (!then) return '';
+  const diff = Date.now() - then;
+  if (diff < 0) return '';
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return minutes + (minutes === 1 ? ' min ago' : ' mins ago');
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours + (hours === 1 ? ' hour ago' : ' hours ago');
+  const days = Math.floor(hours / 24);
+  return days + (days === 1 ? ' day ago' : ' days ago');
+}
+
+function renderFlipkartCard() {
+  const linked = Boolean(flipkartLink.connected);
+  if (flipkartCard) flipkartCard.dataset.state = linked ? 'on' : 'off';
+  if (flipkartStatus) flipkartStatus.textContent = linked ? 'LINKED' : 'NOT LINKED';
+  if (flipkartDetail) {
+    const used = linked ? relativeTime(flipkartLink.lastOpenedAt || flipkartLink.since) : '';
+    flipkartDetail.textContent = linked
+      ? 'Linked' + (used ? ' · opened ' + used : '') + '. Uses your Flipkart browser session.'
+      : FLIPKART_DEFAULT_DETAIL;
+  }
+  if (flipkartConnect) flipkartConnect.textContent = linked ? 'Reconnect' : 'Connect';
+  if (flipkartDisconnect) flipkartDisconnect.hidden = !linked;
+}
+
+// Opens a URL in a new tab while keeping this page out of the new tab's
+// window.opener. Returns false when the browser blocks the pop-up so the
+// caller can say so instead of silently doing nothing.
+function openExternalTab(url) {
+  if (!url) return false;
+  let win = null;
+  try {
+    win = window.open(url, '_blank');
+  } catch (e) {
+    win = null;
+  }
+  if (!win) return false;
+  try { win.opener = null; } catch (e) { /* cross-origin window, already detached */ }
+  return true;
+}
+
+function flipkartPageUrl(page, query) {
+  if (page === 'search') {
+    const clean = String(query || '').replace(/\s+/g, ' ').trim();
+    return clean ? 'https://www.flipkart.com/search?q=' + encodeURIComponent(clean) : FLIPKART_URLS.home;
+  }
+  return FLIPKART_URLS[page] || '';
+}
+
+function markFlipkartLinked() {
+  const now = Date.now();
+  const wasLinked = Boolean(flipkartLink.connected);
+  flipkartLink = {
+    connected: true,
+    since: wasLinked && flipkartLink.since ? flipkartLink.since : now,
+    lastOpenedAt: now
+  };
+  saveFlipkartLink();
+  renderFlipkartCard();
+  return wasLinked;
+}
+
+function connectFlipkart() {
+  const wasLinked = markFlipkartLinked();
+  const opened = openExternalTab(FLIPKART_URLS.login);
+  return { opened, wasLinked };
+}
+
+function unlinkFlipkart() {
+  flipkartLink = { connected: false, since: 0, lastOpenedAt: 0 };
+  saveFlipkartLink();
+  renderFlipkartCard();
+}
+
+function openFlipkartPage(page, query) {
+  const url = flipkartPageUrl(page, query);
+  if (!url) return false;
+  markFlipkartLinked();
+  return openExternalTab(url);
+}
+
+function matchFlipkartIntent(text) {
+  const value = String(text || '').trim();
+  const t = value.toLowerCase();
+  const saysFlipkart = /\bflipkart\b/.test(t);
+  // Shorthand only counts when the whole message is a shopping command, so
+  // questions like "sort my orders by date" still reach the normal brain.
+  const shoppingShorthand =
+    /^(?:please\s+)?(?:open|show|check|see|view|where(?:'s| is))\s+(?:me\s+)?(?:my\s+)?(?:flipkart\s+)?(?:orders?|cart|wishlist|basket)\b/i.test(value) ||
+    /^(?:my|mera)\s+(?:flipkart\s+)?(?:orders?|cart|wishlist|basket)\s*[.!?]*$/i.test(value) ||
+    /^what(?:'s| is| are)\s+(?:there\s+)?in\s+my\s+(?:flipkart\s+)?(?:cart|basket)\b/i.test(value) ||
+    /^track\s+my\s+(?:flipkart\s+)?order\b/i.test(value);
+  const teluguPersonal = /నా\s*(?:ఆర్డర్లు|ఆర్డర్|కార్ట్)/.test(t);
+  if (!saysFlipkart && !shoppingShorthand && !teluguPersonal) return null;
+
+  if (/\b(?:disconnect|unlink)\b|\bremove\s+flipkart\b/.test(t)) return { action: 'disconnect' };
+  if (/\b(?:connect|link|login|log\s*in|sign\s*in)\b/.test(t)) return { action: 'connect' };
+  if (/\b(?:orders?|myorders|purchases?|deliver(?:y|ies)|parcels?)\b/.test(t) || /ఆర్డర్/.test(t)) return { action: 'orders' };
+  if (/\b(?:cart|basket|bag)\b/.test(t) || /కార్ట్/.test(t)) return { action: 'cart' };
+  if (/\b(?:wishlist|wish\s*list|saved\s+items?|favourites?|favorites?)\b/.test(t)) return { action: 'wishlist' };
+  if (/\b(?:track|tracking)\b/.test(t)) return { action: 'orders' };
+  if (/\b(?:account|profile|addresses?)\b/.test(t)) return { action: 'account' };
+  if (/\b(?:home|homepage|site|website)\b/.test(t)) return { action: 'home' };
+
+  // Questions *about* Flipkart are for the brain, not for a product search.
+  if (/^\s*(?:explain|describe|what|why|how|who|when|tell\s+me\s+about|compare|is|are|does|do|can|could|should)\b/i.test(value)) return null;
+  if (/\b(?:business\s+model|share\s+price|stock\s+price|return\s+policy|refund\s+policy|customer\s+care|founder|revenue|valuation|ipo)\b/i.test(t)) return null;
+
+  const query = flipkartQuery(value);
+  return query ? { action: 'search', query } : { action: 'home' };
+}
+
+function flipkartQuery(text) {
+  const patterns = [
+    /\b(?:buy|shop|find|search|look\s*up)\s+(?:for\s+)?(.+?)\s+(?:on|in|at)\s+flipkart\b/i,
+    /\b(?:search|find|look\s*up|shop|buy)\b[\s\S]*?\bfor\s+(.+)$/i,
+    /\b(?:on|in|at)\s+flipkart\s+(?:for\s+)?(.+)$/i,
+    /\bflipkart\s+(?:search\s+)?(?:for\s+)?(.+)$/i
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const query = match[1]
+      .replace(/\s+(?:on|in|at)\s+flipkart[.!?]*$/i, '')
+      .replace(/[.!?]+$/g, '')
+      .trim();
+    if (!query) continue;
+    if (/^(?:flipkart|orders?|cart|wishlist|account|home|login)$/i.test(query)) continue;
+    return query;
+  }
+  return '';
+}
+
+function runFlipkartIntent(intent) {
+  if (intent.action === 'disconnect') {
+    if (!flipkartLink.connected) return 'Flipkart is not linked, Boss.';
+    unlinkFlipkart();
+    return 'Flipkart unlinked from J.A.R.V.I.S, Boss. Your browser login is untouched.';
+  }
+
+  if (intent.action === 'connect') {
+    const result = connectFlipkart();
+    if (!result.opened) return 'Let pop-ups through for J.A.R.V.I.S, Boss, then say “connect Flipkart” again.';
+    return result.wasLinked
+      ? 'Flipkart is already linked, Boss. Login page opened again.'
+      : 'Flipkart linked, Boss. Login page opened — sign in there and J.A.R.V.I.S will reuse that session.';
+  }
+
+  const wasLinked = Boolean(flipkartLink.connected);
+  if (!openFlipkartPage(intent.action, intent.query)) {
+    return 'The browser blocked the Flipkart tab, Boss. Allow pop-ups for J.A.R.V.I.S and try again.';
+  }
+  const label = intent.action === 'search'
+    ? 'Flipkart search for ' + intent.query
+    : (FLIPKART_PAGE_LABELS[intent.action] || 'Flipkart');
+  return (wasLinked ? 'Opening ' : 'Flipkart linked. Opening ') + label + ', Boss.';
+}
+
+if (flipkartConnect) {
+  // These two are real links, so the tab opens without tripping pop-up blockers.
+  flipkartConnect.addEventListener('click', () => {
+    const wasLinked = Boolean(flipkartLink.connected);
+    markFlipkartLinked();
+    if (!flipkartNote) return;
+    flipkartNote.textContent = wasLinked
+      ? 'Flipkart is already linked. The login page opened again in a new tab.'
+      : 'Flipkart linked. Sign in on the Flipkart tab that just opened — your browser keeps that session and JARVIS reuses it.';
+  });
+}
+
+if (flipkartOpen) {
+  flipkartOpen.addEventListener('click', () => {
+    markFlipkartLinked();
+  });
+}
+
+if (flipkartDisconnect) {
+  flipkartDisconnect.addEventListener('click', () => {
+    unlinkFlipkart();
+    if (flipkartNote) flipkartNote.textContent = 'Flipkart unlinked from J.A.R.V.I.S. Nothing was removed from your Flipkart account or this browser’s Flipkart session.';
+  });
+}
+
+if (connectorsOpen) {
+  connectorsOpen.addEventListener('click', () => {
+    openSettings();
+    if (!connectorsGroup) return;
+    try {
+      connectorsGroup.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+    } catch (e) {
+      connectorsGroup.scrollIntoView();
+    }
+    connectorsGroup.classList.add('is-highlighted');
+    setTimeout(() => connectorsGroup.classList.remove('is-highlighted'), 1700);
+  });
+}
+
+renderFlipkartCard();
+
 renderHistoryList();
 refreshApiKeyUI();
 applyTheme(localStorage.getItem('jarvis_theme') || 'dark');
@@ -578,6 +838,9 @@ async function handleTools(text) {
       return 'That link does not look valid.';
     }
   }
+
+  const flipkartIntent = matchFlipkartIntent(text);
+  if (flipkartIntent) return runFlipkartIntent(flipkartIntent);
 
   if (/^\s*(?:google\s+search|search\s+(?:on\s+)?google)(?:\s+for)?\s*$/i.test(text)) return 'Tell me what to search for on Google.';
   const googleSearch = text.match(/^\s*(?:google\s+search|search\s+(?:on\s+)?google)(?:\s+for)?\s+(.+?)\s*$/i);
@@ -920,6 +1183,22 @@ function telugishToolReply(r) {
   if (r.startsWith('Secure password generation')) return 'ఈ browserలో secure password generate చేయడం అందుబాటులో లేదు.';
   if (r.startsWith('Opening YouTube')) return 'YouTube తెరిచాను, Boss. తర్వాత ఏం చేయాలి?';
   if (r.startsWith('Opening Google')) return 'Google తెరిచాను, Boss. తర్వాత ఏం చేయాలి?';
+  if (/^(?:Flipkart linked\. )?Opening (?:your Flipkart|Flipkart)/.test(r)) {
+    const linked = r.startsWith('Flipkart linked. ') ? 'Flipkart link అయింది. ' : '';
+    const target = r.replace(/^Flipkart linked\. /, '').replace(/^Opening /, '').replace(/, Boss\.$/, '').replace(/\.$/, '');
+    if (/^Flipkart search for /.test(target)) {
+      const query = target.slice('Flipkart search for '.length);
+      return linked + 'Flipkartలో “' + query + '” కోసం search తెరిచాను, Boss.';
+    }
+    if (target === 'Flipkart') return linked + 'Flipkart తెరిచాను, Boss.';
+    return linked + 'మీ Flipkart ' + target.replace(/^your Flipkart /, '') + ' తెరిచాను, Boss.';
+  }
+  if (r.startsWith('Flipkart linked, Boss.')) return 'Flipkart link అయింది, Boss. Login page తెరిచాను — అక్కడ sign in చేయండి, J.A.R.V.I.S ఆ session వాడుతుంది.';
+  if (r.startsWith('Flipkart is already linked')) return 'Flipkart ఇప్పటికే link అయి ఉంది, Boss. Login page మళ్లీ తెరిచాను.';
+  if (r.startsWith('Flipkart unlinked')) return 'Flipkart link తీసేశాను, Boss. మీ browser login మాత్రం అలాగే ఉంటుంది.';
+  if (r.startsWith('Flipkart is not linked')) return 'Flipkart link అవ్వలేదు, Boss. Settingsలో Connect నొక్కండి.';
+  if (r.startsWith('The browser blocked the Flipkart tab')) return 'Browser Flipkart tab block చేసింది, Boss. Pop-ups allow చేసి మళ్లీ చెప్పండి.';
+  if (r.startsWith('Let pop-ups through')) return 'Pop-ups allow చేసి, మళ్లీ “connect Flipkart” అనండి, Boss.';
   if (r.startsWith('Opening ')) return r.slice(8).replace(', Boss.', '') + ' తెరిచాను, Boss. తర్వాత ఏం చేయాలి?';
   if (r.startsWith('Searching Google for ')) return 'Googleలో ' + r.slice(21).replace(', Boss.', '') + ' కోసం వెతికాను, Boss. తర్వాత ఏం చేయాలి?';
   if (r.startsWith('Searching YouTube for ')) return 'YouTubeలో ' + r.slice(22).replace(', Boss.', '') + ' కోసం వెతికాను, Boss. తర్వాత ఏం చేయాలి?';

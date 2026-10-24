@@ -1324,10 +1324,17 @@ body.is-thinking .send-button {
 .primary-button,
 .ghost-button {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 10px 14px;
   border-radius: 11px;
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
   transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
 }
 
@@ -1367,6 +1374,131 @@ body.is-thinking .send-button {
 
 .key-status[data-state='missing'] {
   color: var(--amber);
+}
+
+/* =========================================================
+   Connected accounts
+   ========================================================= */
+.connector {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.connector[data-state='on'] {
+  border-color: rgba(62, 242, 160, 0.42);
+  box-shadow: 0 0 0 1px rgba(62, 242, 160, 0.12), 0 12px 26px rgba(2, 6, 20, 0.28);
+}
+
+:root[data-theme='light'] .connector[data-state='on'] {
+  border-color: rgba(20, 144, 95, 0.4);
+  box-shadow: 0 0 0 1px rgba(20, 144, 95, 0.12), 0 10px 22px rgba(30, 60, 120, 0.12);
+}
+
+.connector-logo {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: linear-gradient(140deg, var(--cyan), var(--violet));
+  color: #04121c;
+  box-shadow: 0 8px 18px rgba(82, 233, 255, 0.22);
+}
+
+.connector-logo svg {
+  width: 21px;
+  height: 21px;
+}
+
+.connector-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.connector-copy strong {
+  display: block;
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.connector-copy small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.connector-status {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-family: var(--font-display);
+  font-size: 7.5px;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.connector[data-state='on'] .connector-status {
+  border-color: rgba(62, 242, 160, 0.45);
+  background: rgba(62, 242, 160, 0.08);
+  color: var(--green);
+}
+
+.connector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* author display rules would otherwise beat the [hidden] UA rule */
+.connector-actions [hidden] {
+  display: none !important;
+}
+
+.connector-note,
+.connector-tip {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.connector-tip {
+  padding-left: 9px;
+  border-left: 2px solid rgba(82, 233, 255, 0.28);
+  opacity: 0.85;
+}
+
+:root[data-theme='light'] .connector-tip {
+  border-left-color: rgba(20, 90, 170, 0.24);
+}
+
+.settings-group.is-highlighted {
+  border-radius: 12px;
+  animation: settingsPulse 1.6s ease;
+}
+
+@keyframes settingsPulse {
+  0% { background: rgba(82, 233, 255, 0.16); }
+  100% { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-group.is-highlighted { animation: none; }
 }
 
 .settings-bottom {

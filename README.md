@@ -64,6 +64,41 @@ The app talks to Google's Gemini API from the browser. On first use:
 Never commit a key to this repository. If a key is ever exposed, revoke it in
 Google AI Studio and create a new one.
 
+## Connected accounts
+
+### Flipkart
+
+Open **Settings → Connected accounts**, or **Connections** in the sidebar, and
+press **Connect** on the Flipkart card. This is a browser hand-off, not an API
+sync:
+
+* **Connect** remembers the link in this browser (`localStorage`, key
+  `jarvis_flipkart_link_v1`) and opens Flipkart's login page in a new tab. You
+  sign in there, on Flipkart's own page; the browser keeps that session. JARVIS
+  never asks for, sees or stores your Flipkart password, OTP or cookies.
+* JARVIS can then open the right Flipkart page in a new tab, where that session
+  already applies:
+
+  | Say | What opens |
+  | --- | --- |
+  | “my Flipkart orders” · “track my order” | `flipkart.com/myorders` |
+  | “what's in my Flipkart cart” | `flipkart.com/viewcart` |
+  | “my Flipkart wishlist” | `flipkart.com/wishlist` |
+  | “Flipkart account” | account page |
+  | “search Flipkart for earphones” | `flipkart.com/search?q=earphones` |
+  | “connect Flipkart” · “unlink Flipkart” | link / unlink the connector |
+
+* **Unlink** only forgets the link inside JARVIS. It does not log you out of
+  Flipkart and removes nothing from your account.
+
+What the connector deliberately does **not** do: it does not read, place,
+cancel or live-track orders inside the app. Flipkart has no consumer OAuth, and
+a static browser app cannot read `flipkart.com` pages (CORS), so a "sync" here
+would either be fake or require sending your logged-in session through a
+third-party proxy. Opening the pages in your own browser keeps every credential
+inside Flipkart's origin, and nothing sensitive is written into this app's
+storage.
+
 ## What was fixed in this pass
 
 * **The app had no styling.** `Frontend/style.css` was a 150-line stylesheet for an
