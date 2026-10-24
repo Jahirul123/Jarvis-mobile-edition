@@ -10,7 +10,8 @@ J.A.R.V.I.S series.
 | `index.html` | Site entry point → opens the app in `Frontend/` |
 | `Frontend/index.html` | The J.A.R.V.I.S app shell (chat, voice, wake word, history, settings) |
 | `Frontend/style.css` | App theme: dark/light, mobile drawer sidebar, composer, settings panel |
-| `Frontend/script.js` | App logic: Gemini chat, tools, speech, wake word, history, canvas core orb |
+| `Frontend/script.js` | App logic: Gemini chat, tools, speech, wake word, history, core visual states |
+| `Frontend/blackhole.js` | The animated black hole renderer (WebGL ray-tracer + canvas2d fallback) |
 | `Frontend/manifest.json`, `Frontend/icon.svg` | PWA manifest + app icon |
 | `Frontend/jarvis-build-log.html` | Build-log page (episodes, build flow, links) |
 
@@ -27,6 +28,29 @@ Then open <http://localhost:8000/> — the site root opens the app
 
 Opening the files directly with `file://` will not work, because the app uses
 `localStorage` and microphone permissions, which browsers block on `file://`.
+
+## The black hole core
+
+The hero of the interface is a real-time black hole, not a video or a sprite.
+
+* Each pixel traces a light ray backwards through a Schwarzschild-like field
+  (`a = -1.5 · h² · p / r⁵`, the photon orbit equation), so the accretion disk is
+  genuinely lensed over and under the shadow, producing the Interstellar-style halo.
+* Turbulent plasma streaks are FBM noise sampled in the disk plane, with Doppler
+  beaming (one side brighter) and a lensed secondary image of the far disk.
+* `Frontend/blackhole.js` ships three renderers, picked at runtime:
+  1. **WebGL** — full ray-traced black hole (GLSL ES 1.0, verified to compile).
+  2. **Canvas2D** — animated fallback for devices/drivers without WebGL.
+  3. **None** — the page still works with no visual if nothing is available.
+* The visual reacts to the assistant state through `window.JarvisBlackHole`:
+  `idle` (cyan, slow), `listening` (green, brighter), `thinking` (amber/orange, fast
+  spin), `speaking` (blue-violet), `error` (red shift).
+* Performance: capped at 2× DPR, render resolution reduced on large screens, adaptive
+  step budget that backs off if frames get slow, rendering paused when the tab or
+  the stage is off-screen, and a static-but-pretty frame under
+  `prefers-reduced-motion`.
+* On pointer-capable devices the camera sways slightly with the cursor, so the disk
+  visibly orbits rather than spinning in place.
 
 ## API key
 
