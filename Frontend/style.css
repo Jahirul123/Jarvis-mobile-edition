@@ -1755,7 +1755,7 @@ body.is-thinking .send-button {
   top: calc(-1 * var(--hero-visual) * 0.32);
   left: 50%;
   transform: translateX(-50%);
-  width: min(1120px, 118%);
+  width: 100%;
   height: calc(var(--hero-total) * 1.16);
   z-index: 0;
   border-radius: 50%;
@@ -1816,7 +1816,7 @@ body.is-thinking .send-button {
    composer, settings and adds the palette + toasts.
    ========================================================= */
 :root {
-  --hero-visual: clamp(210px, 38vh, 400px);
+  --hero-visual: clamp(190px, 30vh, 380px);
   --hero-total: calc(var(--topbar-h) + var(--hero-visual));
   --rail-width: 84px;
   --ease-out: cubic-bezier(.22, .9, .28, 1);
@@ -2241,8 +2241,8 @@ body.wake-on .wake-status::before,
 }
 
 .welcome {
-  gap: 16px;
-  padding: calc(var(--hero-total) - 46px) 0 26px;
+  gap: 12px;
+  padding: calc(var(--hero-total) - 58px) 0 18px;
   max-width: 820px;
   width: 100%;
 }
@@ -3282,7 +3282,7 @@ body.has-conversation .chat .msg .msg-body {
 
 
 /* ---------- compact screens: keep the whole deck above the composer ---------- */
-@media (max-width: 780px) and (max-height: 820px) {
+@media (max-width: 780px) and (max-height: 900px) {
   :root {
     --hero-visual: clamp(118px, 17vh, 168px);
   }
@@ -3334,7 +3334,7 @@ body.has-conversation .chat .msg .msg-body {
   }
 }
 
-@media (max-width: 780px) and (max-height: 680px) {
+@media (max-width: 780px) and (max-height: 760px) {
   .welcome-stats {
     display: none;
   }
@@ -3343,5 +3343,89 @@ body.has-conversation .chat .msg .msg-body {
   }
   .eyebrow {
     font-size: 8px;
+  }
+}
+
+
+/* ---------- shorter viewports: fit the deck without scrolling ---------- */
+@media (min-width: 781px) and (max-height: 1000px) {
+  :root {
+    --hero-visual: clamp(170px, 24vh, 300px);
+  }
+
+  .welcome h1 {
+    margin: 10px 0 8px;
+    font-size: clamp(30px, 3.5vw, 44px);
+  }
+
+  .welcome-stats {
+    margin-top: 12px;
+  }
+
+  .prompt-grid {
+    gap: 10px;
+    margin-top: 2px;
+  }
+
+  .prompt-card {
+    padding: 12px 14px;
+  }
+}
+
+@media (min-width: 781px) and (max-height: 860px) {
+  :root {
+    --hero-visual: clamp(150px, 20vh, 230px);
+  }
+
+  .welcome {
+    gap: 8px;
+    padding-top: calc(var(--hero-total) - 44px);
+  }
+
+  .welcome h1 {
+    font-size: clamp(28px, 3vw, 38px);
+    margin: 8px 0 6px;
+  }
+
+  .welcome-subtitle {
+    font-size: 13.5px;
+  }
+
+  .welcome-stats {
+    margin-top: 9px;
+    gap: 6px;
+  }
+
+  .stat-chip {
+    padding: 5px 9px;
+  }
+
+  .prompt-card {
+    padding: 10px 13px;
+  }
+
+  .prompt-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+
+  .quick-row {
+    margin-top: 0;
+  }
+
+  .quick-chip {
+    padding: 6px 11px;
+    font-size: 11px;
+  }
+}
+
+@media (min-width: 781px) and (max-height: 760px) {
+  .welcome-stats,
+  .quick-row {
+    display: none;
+  }
+  .welcome-subtitle {
+    display: none;
   }
 }
