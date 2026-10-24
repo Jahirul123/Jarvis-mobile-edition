@@ -1,12 +1,77 @@
-// ===== 1. API KEY =====
-let API_KEY = localStorage.getItem('jarvis_key');
-if (!API_KEY) {
-  API_KEY = prompt('Enter your Gemini API Key:');
-  if (API_KEY) localStorage.setItem('jarvis_key', API_KEY);
+// ===== 1. GEMINI BRAIN (API) =====
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+// Tried in order when the /models discovery call is unavailable.
+const GEMINI_MODEL_PREFERENCES = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest', 'gemini-1.5-flash'];
+const GEMINI_SYSTEM_INSTRUCTION = 'You are J.A.R.V.I.S, a friendly personal assistant for Vamshi. Reply naturally in a warm Telugu-English mix, using clear concise language. If you do not know, say so plainly.';
+
+const API_KEY_STORAGE = 'jarvis_key';
+let API_KEY = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
+
+function hasApiKey() {
+  return Boolean(API_KEY);
 }
 
-function extractInteractionText(data) {
+function setApiKey(value) {
+  API_KEY = String(value || '').trim();
+  try {
+    if (API_KEY) localStorage.setItem(API_KEY_STORAGE, API_KEY);
+    else localStorage.removeItem(API_KEY_STORAGE);
+  } catch (e) { /* storage may be unavailable */ }
+  return API_KEY;
+}
+
+// Convert the many shapes this app uses into Gemini "contents" entries.
+function partsFrom(value) {
+  const list = Array.isArray(value) ? value : value ? [value] : [];
+  return list.map(part => {
+    if (typeof part === 'string') return { text: part };
+    if (!part || typeof part !== 'object') return null;
+    const inline = part.inline_data || part.inlineData;
+    if (inline && inline.data) {
+      return { inline_data: { mime_type: inline.mime_type || inline.mimeType || 'image/jpeg', data: inline.data } };
+    }
+    if (part.type === 'image' && part.data) {
+      return { inline_data: { mime_type: part.mime_type || part.mimeType || 'image/jpeg', data: part.data } };
+    }
+    if (typeof part.text === 'string') return { text: part.text };
+    return null;
+  }).filter(Boolean);
+}
+
+function normalizeGeminiContents(input) {
+  if (typeof input === 'string') return [{ role: 'user', parts: [{ text: input }] }];
+  const items = Array.isArray(input) ? input : [input];
+  const contents = [];
+  let loose = false;
+
+  items.forEach(item => {
+    if (!item || typeof item !== 'object') return;
+    const role = item.role === 'model' || item.type === 'model_output' ? 'model' : 'user';
+    const isEnvelope = item.role === 'user' || item.role === 'model' || item.type === 'user_input' || item.type === 'model_output';
+    const parts = partsFrom(isEnvelope ? (item.parts || item.content) : [item]);
+    if (!parts.length) return;
+    const last = contents[contents.length - 1];
+    if ((isEnvelope || loose) && last && last.role === role) {
+      last.parts.push(...parts);
+      loose = loose || !isEnvelope;
+      return;
+    }
+    contents.push({ role, parts });
+    loose = !isEnvelope;
+  });
+
+  return contents;
+}
+
+function extractGeminiText(data) {
   if (typeof data?.output_text === 'string' && data.output_text.trim()) return data.output_text.trim();
+  const candidate = Array.isArray(data?.candidates) ? data.candidates[0] : null;
+  const parts = candidate?.content?.parts;
+  const text = (Array.isArray(parts) ? parts : [])
+    .map(part => (typeof part?.text === 'string' ? part.text : ''))
+    .join('')
+    .trim();
+  if (text) return text;
   const steps = Array.isArray(data?.steps) ? data.steps : Array.isArray(data?.outputs) ? data.outputs : [];
   return steps
     .filter(step => step && (step.type === 'model_output' || step.type === 'text' || !step.type))
@@ -17,29 +82,146 @@ function extractInteractionText(data) {
     .trim();
 }
 
-async function requestGeminiInteraction(input, systemInstruction = GEMINI_SYSTEM_INSTRUCTION) {
-  if (!API_KEY) throw new Error('Gemini API key is missing. Reload the page and enter it again.');
-  const payload = { model: GEMINI_MODEL, input, store: false };
-  if (systemInstruction) payload.system_instruction = systemInstruction;
-  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': API_KEY,
-      'Api-Revision': '2026-05-20'
-    },
-    body: JSON.stringify(payload)
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data?.error) {
-    throw new Error(data?.error?.message || 'Gemini request failed (' + response.status + ').');
+async function geminiFetch(url, options, timeoutMs = 45000) {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    return await fetch(url, { ...options, ...(controller ? { signal: controller.signal } : {}) });
+  } catch (error) {
+    if (error && error.name === 'AbortError') {
+      throw new Error('Google did not answer in time. Check your connection and try again.');
+    }
+    throw new Error('Could not reach Google\'s Gemini servers. Check your internet connection (or VPN/ad-blocker) and try again.');
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  const reply = extractInteractionText(data);
-  if (!reply) throw new Error(data?.status === 'failed' ? 'Gemini could not complete this request.' : 'Gemini returned an empty response.');
-  return reply;
 }
-const GEMINI_MODEL = 'gemini-3.8-flash';
-const GEMINI_SYSTEM_INSTRUCTION = 'You are J.A.R.V.I.S, a friendly personal assistant for Vamshi. Reply naturally in a warm Telugu-English mix, using clear concise language. If you do not know, say so plainly.';
+
+function friendlyGeminiError(status, message) {
+  const detail = String(message || '').trim();
+  if (status === 400 && /api key not valid/i.test(detail)) return 'That Gemini API key is not valid. Check it in Settings.';
+  if (status === 401 || status === 403) return 'Google rejected this API key. Make sure the Gemini API is enabled for it.';
+  if (status === 404) return 'The Gemini model could not be found for this API key.';
+  if (status === 429) return 'Gemini rate limit reached. Wait a moment and try again.';
+  if (status >= 500) return 'Gemini is busy right now. Please try again in a few seconds.';
+  return detail || 'Gemini request failed (' + status + ').';
+}
+
+let geminiDiscovery = null;
+let geminiModelQueue = null;
+let resolvedGeminiModel = '';
+
+async function discoverGeminiModels() {
+  const response = await geminiFetch(GEMINI_API_BASE + '/models?pageSize=200', {
+    headers: { 'x-goog-api-key': API_KEY }
+  }, 15000);
+  if (!response.ok) throw new Error('Model discovery failed (' + response.status + ').');
+  const data = await response.json();
+  return (Array.isArray(data?.models) ? data.models : [])
+    .filter(model => Array.isArray(model?.supportedGenerationMethods)
+      ? model.supportedGenerationMethods.includes('generateContent')
+      : true)
+    .map(model => String(model?.name || '').replace(/^models\//, ''))
+    .filter(Boolean);
+}
+
+function buildGeminiCandidates(available) {
+  const usable = available.filter(id => !/embedding|aqa|imagen|image-generation|tts|live|native-audio/i.test(id));
+  const ordered = [];
+  const add = id => { if (id && !ordered.includes(id)) ordered.push(id); };
+
+  GEMINI_MODEL_PREFERENCES.forEach(preferred => { if (usable.includes(preferred)) add(preferred); });
+  usable.filter(id => /flash/i.test(id)).forEach(add);
+  usable.forEach(add);
+  if (!ordered.length) GEMINI_MODEL_PREFERENCES.forEach(add);
+  return ordered;
+}
+
+async function resolveGeminiModel(force = false) {
+  if (force) {
+    resolvedGeminiModel = '';
+    geminiModelQueue = null;
+    geminiDiscovery = null;
+  }
+  if (resolvedGeminiModel) return resolvedGeminiModel;
+  if (!geminiModelQueue) {
+    if (!geminiDiscovery) {
+      geminiDiscovery = discoverGeminiModels().catch(error => {
+        console.warn('Gemini model discovery failed, using a default model.', error);
+        return [];
+      });
+    }
+    geminiModelQueue = buildGeminiCandidates(await geminiDiscovery);
+  }
+  resolvedGeminiModel = geminiModelQueue[0] || GEMINI_MODEL_PREFERENCES[0];
+  return resolvedGeminiModel;
+}
+
+function retireGeminiModel(model) {
+  if (geminiModelQueue) {
+    const index = geminiModelQueue.indexOf(model);
+    if (index >= 0) geminiModelQueue.splice(index, 1);
+  }
+  resolvedGeminiModel = '';
+}
+
+async function requestGeminiInteraction(input, systemInstruction = GEMINI_SYSTEM_INSTRUCTION) {
+  if (!API_KEY) {
+    throw new Error('Gemini API key is not set. Open Settings and paste your key to start chatting.');
+  }
+  const contents = normalizeGeminiContents(input);
+  if (!contents.length) throw new Error('There was nothing to send to Gemini.');
+
+  const payload = {
+    contents,
+    generationConfig: { temperature: 0.8, maxOutputTokens: 2048 }
+  };
+  const system = String(systemInstruction || '').trim();
+  if (system) payload.systemInstruction = { parts: [{ text: system }] };
+
+  let model = await resolveGeminiModel();
+  let response = null;
+  let data = {};
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    response = await geminiFetch(GEMINI_API_BASE + '/models/' + encodeURIComponent(model) + ':generateContent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': API_KEY
+      },
+      body: JSON.stringify(payload)
+    }, 45000);
+    data = await response.json().catch(() => ({}));
+
+    if (response.ok && !data?.error) break;
+
+    const message = String(data?.error?.message || '');
+    const modelMissing = response.status === 404 || /not found|not supported|does not support|unsupported/i.test(message);
+    if (!modelMissing) break;
+
+    retireGeminiModel(model);
+    const next = await resolveGeminiModel();
+    if (!next || next === model) break;
+    model = next;
+  }
+
+  if (!response || !response.ok || data?.error) {
+    throw new Error(friendlyGeminiError(response ? response.status : 0, data?.error?.message));
+  }
+
+  const reply = extractGeminiText(data);
+  if (reply) return reply;
+
+  const finishReason = data?.candidates?.[0]?.finishReason;
+  if (finishReason === 'SAFETY' || finishReason === 'PROHIBITED_CONTENT') {
+    throw new Error('Gemini blocked that response. Try asking in a different way.');
+  }
+  if (finishReason === 'MAX_TOKENS') {
+    throw new Error('The reply was cut off. Try a shorter question.');
+  }
+  throw new Error('Gemini returned an empty response.');
+}
 
 // ===== 2. MEMORY =====
 let MEMORY = [];
@@ -190,9 +372,13 @@ function scrollConversationToBottom() {
   else setTimeout(scroll, 16);
 }
 
+function displayText(text) {
+  return String(text).replace(/^(?:J\.A\.R\.V\.I\.S|YOU):\s*/i, '');
+}
+
 function setReply(node, text) {
   if (!node) return;
-  node.innerText = text;
+  node.innerText = displayText(text);
   scrollConversationToBottom();
 }
 
@@ -205,15 +391,25 @@ function isTransientActivity(text) {
   return /^(?:Thinking\.\.\.|Agent mode active\.|Goal analyze\b|\[\d+\/\d+\].*tool run chesthunna|Results combine chesthunna|Gemini busy undi;)/i.test(clean);
 }
 
+function isMobileViewport() {
+  if (typeof window.matchMedia === 'function') return window.matchMedia('(max-width: 780px)').matches;
+  return window.innerWidth <= 780;
+}
+
+function prefersReducedMotion() {
+  if (typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 function closeSidebarOnMobile() {
-  if (window.matchMedia('(max-width: 780px)').matches) {
+  if (isMobileViewport()) {
     document.body.classList.remove('sidebar-open');
     if (sidebarBackdrop) sidebarBackdrop.hidden = true;
   }
 }
 
 function toggleSidebar() {
-  if (window.matchMedia('(max-width: 780px)').matches) {
+  if (isMobileViewport()) {
     const open = !document.body.classList.contains('sidebar-open');
     document.body.classList.toggle('sidebar-open', open);
     if (sidebarBackdrop) sidebarBackdrop.hidden = !open;
@@ -285,7 +481,7 @@ function openSettings() {
 function closeSettings() {
   settingsPanel.hidden = true;
   settingsScrim.hidden = true;
-  if (window.matchMedia('(max-width: 780px)').matches && !document.body.classList.contains('sidebar-open')) menuButton.focus();
+  if (isMobileViewport() && !document.body.classList.contains('sidebar-open')) menuButton.focus();
 }
 
 function applyTheme(theme) {
@@ -295,7 +491,54 @@ function applyTheme(theme) {
   if (themeSelect) themeSelect.value = chosen;
 }
 
+const apiKeyInput = document.getElementById('api-key-input');
+const apiKeySave = document.getElementById('api-key-save');
+const apiKeyClear = document.getElementById('api-key-clear');
+const apiKeyStatus = document.getElementById('api-key-status');
+
+function refreshApiKeyUI(message) {
+  const saved = hasApiKey();
+  if (apiKeyStatus) {
+    apiKeyStatus.textContent = message || (saved
+      ? 'A key is saved in this browser. Paste a new one to replace it.'
+      : 'No key saved yet. Paste your Gemini API key to start chatting.');
+    apiKeyStatus.dataset.state = saved ? 'saved' : 'missing';
+  }
+  if (apiKeyClear) apiKeyClear.disabled = !saved;
+  if (apiKeyInput) apiKeyInput.placeholder = saved ? 'Key saved — paste a new key to replace it' : 'Paste your Gemini API key';
+}
+
+function saveApiKeyFromSettings() {
+  const value = apiKeyInput ? apiKeyInput.value.trim() : '';
+  if (!value) {
+    refreshApiKeyUI('Paste a key first, then press Save.');
+    if (apiKeyInput) apiKeyInput.focus();
+    return;
+  }
+  setApiKey(value);
+  if (apiKeyInput) apiKeyInput.value = '';
+  refreshApiKeyUI('Key saved on this device. You can start chatting.');
+}
+
+if (apiKeySave) apiKeySave.addEventListener('click', saveApiKeyFromSettings);
+if (apiKeyInput) {
+  apiKeyInput.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      saveApiKeyFromSettings();
+    }
+  });
+}
+if (apiKeyClear) {
+  apiKeyClear.addEventListener('click', () => {
+    setApiKey('');
+    if (apiKeyInput) apiKeyInput.value = '';
+    refreshApiKeyUI('Key removed from this browser.');
+  });
+}
+
 renderHistoryList();
+refreshApiKeyUI();
 applyTheme(localStorage.getItem('jarvis_theme') || 'dark');
 MEMORY.forEach(m => add((m.role === 'user' ? 'YOU: ' : 'J.A.R.V.I.S: ') + m.text, m.role === 'user' ? 'user' : 'ai'));
 
@@ -705,7 +948,11 @@ function telugishToolReply(r) {
   return r;
 }
 
+let jarvisBusy = false;
+
 async function askGemini(p) {
+  if (jarvisBusy) return;
+  jarvisBusy = true;
   setThinking(true, 'J.A.R.V.I.S is thinking');
   setJarvisVisualState('THINKING');
   const replyNode = add('J.A.R.V.I.S: Thinking...', 'ai', true);
@@ -760,8 +1007,13 @@ async function askGemini(p) {
     console.error('J.A.R.V.I.S request failed:', e);
     setJarvisVisualState('ERROR');
     setReply(replyNode, 'J.A.R.V.I.S: ERROR - ' + (e?.message || 'Request failed.'));
+    if (!hasApiKey()) {
+      refreshApiKeyUI('No key saved yet. Paste your Gemini API key to chat with J.A.R.V.I.S.');
+      openSettings();
+    }
     setTimeout(() => setJarvisVisualState('IDLE'), 2000);
   } finally {
+    jarvisBusy = false;
     setThinking(false);
     if (wakeCommandPending && !wakeReplyPending) finishWakeReply();
   }
@@ -798,6 +1050,10 @@ async function askVision(base64, mime, q) {
     setTimeout(() => setJarvisVisualState('IDLE'), 2500);
   } catch (e) {
     setReply(replyNode, 'J.A.R.V.I.S: ERROR - ' + (e?.message || 'Image analysis failed.'));
+    if (!hasApiKey()) {
+      refreshApiKeyUI('No key saved yet. Paste your Gemini API key to analyze images.');
+      openSettings();
+    }
     setJarvisVisualState('ERROR');
     setTimeout(() => setJarvisVisualState('IDLE'), 2000);
   } finally {
@@ -1119,14 +1375,16 @@ function speak(t, onComplete) {
 }
 
 // ===== 7. SEND + CLEAR =====
-document.getElementById('send').onclick = () => {
+function sendCurrentMessage() {
   const t = input.value.trim();
   if (!t) return;
   add('YOU: ' + t, 'user');
   input.value = '';
   input.style.height = 'auto';
   askGemini(t);
-};
+}
+
+document.getElementById('send').onclick = sendCurrentMessage;
 
 clearBtn.onclick = () => {
   MEMORY = [];
@@ -1146,7 +1404,7 @@ function add(t, w, force = false) {
   }
   const d = document.createElement('div');
   d.className = 'msg ' + w;
-  d.innerText = t;
+  d.innerText = displayText(t);
   chat.appendChild(d);
   document.body.classList.toggle('has-conversation', chat.children.length > 0);
   scrollConversationToBottom();
@@ -1177,7 +1435,7 @@ document.addEventListener('keydown', event => {
   }
   if (event.key === 'Enter' && !event.shiftKey && document.activeElement === input) {
     event.preventDefault();
-    document.getElementById('send').click();
+    sendCurrentMessage();
   }
 });
 
@@ -1192,48 +1450,176 @@ document.querySelectorAll('[data-prompt]').forEach(button => button.addEventList
   input.dispatchEvent(new Event('input'));
 }));
 
-// ===== ORBS INITIALIZATION =====
+// ===== 8. CORE VISUAL (self-contained canvas orb) =====
+class JarvisOrb {
+  constructor(container) {
+    this.container = container;
+    this.state = 'IDLE';
+    this.speed = 0.5;
+    this.targetSpeed = 0.5;
+    this.color = '#52e9ff';
+    this.targetColor = '#52e9ff';
+    this.angle = 0;
+    this.pulse = 0;
+    this.frame = null;
+    this.reduceMotion = prefersReducedMotion();
+
+    this.canvas = document.createElement('canvas');
+    this.canvas.setAttribute('aria-hidden', 'true');
+    this.canvas.className = 'jarvis-orb-canvas';
+    this.ctx = this.canvas.getContext ? this.canvas.getContext('2d') : null;
+    container.replaceChildren(this.canvas);
+    if (!this.ctx) return;
+
+    this.resize = this.resize.bind(this);
+    this.render = this.render.bind(this);
+    this.resize();
+    window.addEventListener('resize', this.resize);
+    this.start();
+  }
+
+  resize() {
+    if (!this.canvas) return;
+    const box = this.container.getBoundingClientRect();
+    const size = Math.max(96, Math.round(Math.min(box.width || 150, box.height || 150)));
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.size = size;
+    this.canvas.width = Math.round(size * dpr);
+    this.canvas.height = Math.round(size * dpr);
+    this.canvas.style.width = size + 'px';
+    this.canvas.style.height = size + 'px';
+    if (this.ctx) this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (this.reduceMotion) this.render();
+  }
+
+  start() {
+    if (this.frame || this.reduceMotion) { this.render(); return; }
+    const step = timestamp => {
+      this.frame = window.requestAnimationFrame(step);
+      const delta = this.lastTimestamp ? Math.min(timestamp - this.lastTimestamp, 64) : 16;
+      this.lastTimestamp = timestamp;
+      this.speed += (this.targetSpeed - this.speed) * 0.06;
+      this.angle = (this.angle + (delta / 1000) * (0.5 + this.speed)) % (Math.PI * 2);
+      this.pulse = (this.pulse + (delta / 1000) * (0.8 + this.speed)) % (Math.PI * 2);
+      this.render();
+    };
+    this.frame = window.requestAnimationFrame(step);
+  }
+
+  stop() {
+    if (this.frame) window.cancelAnimationFrame(this.frame);
+    this.frame = null;
+  }
+
+  setSpeed(value) { this.targetSpeed = Number(value) || 0; }
+
+  setColor(value) {
+    if (value) this.color = value;
+    this.targetColor = value || this.color;
+  }
+
+  setState(state) {
+    this.state = state || 'IDLE';
+    this.reduceMotion = prefersReducedMotion();
+    if (this.reduceMotion) { this.stop(); this.render(); }
+    else this.start();
+  }
+
+  render() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const size = this.size || 150;
+    const center = size / 2;
+    const radius = center * 0.92;
+    const accent = this.targetColor || this.color;
+    const breathe = this.reduceMotion ? 1 : 1 + Math.sin(this.pulse) * 0.045;
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.save();
+    ctx.translate(center, center);
+
+    const glow = ctx.createRadialGradient(0, 0, radius * 0.15, 0, 0, radius);
+    glow.addColorStop(0, this.hexToRgba(accent, 0.45));
+    glow.addColorStop(0.55, this.hexToRgba(accent, 0.12));
+    glow.addColorStop(1, this.hexToRgba(accent, 0));
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.scale(breathe, breathe);
+
+    for (let ring = 0; ring < 3; ring++) {
+      const ringRadius = radius * (0.46 + ring * 0.16);
+      ctx.save();
+      ctx.rotate(this.angle * (ring % 2 === 0 ? 1 : -0.7) + ring * 1.1);
+      ctx.strokeStyle = this.hexToRgba(accent, 0.7 - ring * 0.16);
+      ctx.lineWidth = Math.max(1, size / 150);
+      ctx.beginPath();
+      ctx.arc(0, 0, ringRadius, 0, Math.PI * (1.15 + ring * 0.12));
+      ctx.stroke();
+      ctx.fillStyle = this.hexToRgba(accent, 0.95);
+      ctx.beginPath();
+      ctx.arc(ringRadius, 0, Math.max(1.5, size / 90), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    const coreGlow = ctx.createRadialGradient(0, 0, 0, 0, 0, radius * 0.44);
+    coreGlow.addColorStop(0, '#ffffff');
+    coreGlow.addColorStop(0.32, this.hexToRgba(accent, 0.98));
+    coreGlow.addColorStop(1, this.hexToRgba(accent, 0.05));
+    ctx.fillStyle = coreGlow;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.44, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  hexToRgba(hex, alpha) {
+    const value = String(hex || '').replace('#', '');
+    const full = value.length === 3 ? value.split('').map(c => c + c).join('') : value.padEnd(6, '0').slice(0, 6);
+    const number = parseInt(full, 16);
+    const red = (number >> 16) & 255;
+    const green = (number >> 8) & 255;
+    const blue = number & 255;
+    return 'rgba(' + red + ', ' + green + ', ' + blue + ', ' + alpha + ')';
+  }
+}
+
+const JARVIS_STATES = {
+  IDLE: { speed: 0.5, color: '#52e9ff' },
+  LISTENING: { speed: 1.6, color: '#3ef2a0' },
+  THINKING: { speed: 3.2, color: '#ffb44a' },
+  SPEAKING: { speed: 1.1, color: '#7bd8ff' },
+  ERROR: { speed: 0.2, color: '#ff5f7a' }
+};
+
 let orbInstance = null;
 
 function initOrbs() {
   const container = document.getElementById('jarvis-core-container');
-  if (!container) return;
-
-  orbInstance = new Orbs(container, {
-    colorPrimary: '#00ffff',
-    colorSecondary: '#ff00ff',
-    speed: 0.5,
-    complexity: 5
-  });
+  if (!container || orbInstance) return;
+  orbInstance = new JarvisOrb(container);
 }
 
 function setJarvisVisualState(state) {
-  if (!orbInstance) return;
-
-  switch (state) {
-    case 'IDLE':
-      orbInstance.setSpeed(0.5);
-      orbInstance.setColor('#00ffff');
-      break;
-    case 'LISTENING':
-      orbInstance.setSpeed(1.5);
-      orbInstance.setColor('#00ff00');
-      break;
-    case 'THINKING':
-      orbInstance.setSpeed(3.0);
-      orbInstance.setColor('#ffa500');
-      break;
-    case 'SPEAKING':
-      orbInstance.setSpeed(1.0);
-      orbInstance.setColor('#00ccff');
-      break;
-    case 'ERROR':
-      orbInstance.setColor('#ff0000');
-      break;
+  const preset = JARVIS_STATES[state] || JARVIS_STATES.IDLE;
+  if (orbInstance) {
+    orbInstance.setState(state);
+    orbInstance.setSpeed(preset.speed);
+    orbInstance.setColor(preset.color);
   }
+  const container = document.getElementById('jarvis-core-container');
+  if (container) container.dataset.state = String(state || 'IDLE').toLowerCase();
 }
 
-window.addEventListener('load', () => {
+function bootCoreVisual() {
   initOrbs();
   setJarvisVisualState('IDLE');
-});
+}
+
+if (document.readyState === 'complete' || document.readyState === 'interactive') bootCoreVisual();
+else window.addEventListener('DOMContentLoaded', bootCoreVisual);
+window.addEventListener('load', bootCoreVisual);
