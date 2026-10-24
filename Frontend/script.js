@@ -82,6 +82,21 @@ function extractGeminiText(data) {
     .trim();
 }
 
+async function geminiFetch(url, options, timeoutMs = 45000) {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    return await fetch(url, { ...options, ...(controller ? { signal: controller.signal } : {}) });
+  } catch (error) {
+    if (error && error.name === 'AbortError') {
+      throw new Error('Google did not answer in time. Check your connection and try again.');
+    }
+    throw new Error('Could not reach Google\'s Gemini servers. Check your internet connection (or VPN/ad-blocker) and try again.');
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function friendlyGeminiError(status, message) {
   const detail = String(message || '').trim();
   if (status === 400 && /api key not valid/i.test(detail)) return 'That Gemini API key is not valid. Check it in Settings.';
@@ -97,9 +112,9 @@ let geminiModelQueue = null;
 let resolvedGeminiModel = '';
 
 async function discoverGeminiModels() {
-  const response = await fetch(GEMINI_API_BASE + '/models?pageSize=200', {
+  const response = await geminiFetch(GEMINI_API_BASE + '/models?pageSize=200', {
     headers: { 'x-goog-api-key': API_KEY }
-  });
+  }, 15000);
   if (!response.ok) throw new Error('Model discovery failed (' + response.status + ').');
   const data = await response.json();
   return (Array.isArray(data?.models) ? data.models : [])
@@ -162,21 +177,21 @@ async function requestGeminiInteraction(input, systemInstruction = GEMINI_SYSTEM
     generationConfig: { temperature: 0.8, maxOutputTokens: 2048 }
   };
   const system = String(systemInstruction || '').trim();
-  if (system) payload.systemInstruction = { role: 'system', parts: [{ text: system }] };
+  if (system) payload.systemInstruction = { parts: [{ text: system }] };
 
   let model = await resolveGeminiModel();
   let response = null;
   let data = {};
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    response = await fetch(GEMINI_API_BASE + '/models/' + encodeURIComponent(model) + ':generateContent', {
+    response = await geminiFetch(GEMINI_API_BASE + '/models/' + encodeURIComponent(model) + ':generateContent', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-goog-api-key': API_KEY
       },
       body: JSON.stringify(payload)
-    });
+    }, 45000);
     data = await response.json().catch(() => ({}));
 
     if (response.ok && !data?.error) break;

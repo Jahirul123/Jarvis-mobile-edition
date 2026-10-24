@@ -7,13 +7,12 @@ J.A.R.V.I.S series.
 
 | Path | What it is |
 | --- | --- |
-| `index.html` | GitHub Pages entry point → redirects to the build log |
-| `github_index.html` | Public build log (episodes, build flow, links). Has a **LAUNCH J.A.R.V.I.S** button |
+| `index.html` | Site entry point → opens the app in `Frontend/` |
 | `Frontend/index.html` | The J.A.R.V.I.S app shell (chat, voice, wake word, history, settings) |
 | `Frontend/style.css` | App theme: dark/light, mobile drawer sidebar, composer, settings panel |
 | `Frontend/script.js` | App logic: Gemini chat, tools, speech, wake word, history, canvas core orb |
 | `Frontend/manifest.json`, `Frontend/icon.svg` | PWA manifest + app icon |
-| `Frontend/jarvis-build-log.html` | Long-form build-log page kept for reference |
+| `Frontend/jarvis-build-log.html` | Build-log page (episodes, build flow, links) |
 
 The app is a static site — no build step and no server code.
 
@@ -23,10 +22,8 @@ The app is a static site — no build step and no server code.
 python3 -m http.server 8000
 ```
 
-Then open:
-
-* build log → <http://localhost:8000/>
-* app → <http://localhost:8000/Frontend/>
+Then open <http://localhost:8000/> — the site root opens the app
+(`http://localhost:8000/Frontend/` directly also works).
 
 Opening the files directly with `file://` will not work, because the app uses
 `localStorage` and microphone permissions, which browsers block on `file://`.
@@ -65,9 +62,11 @@ Google AI Studio and create a new one.
 * **Blocking API-key prompt on every load.** Replaced with a proper key field in
   Settings; a missing key now gives a clear message and opens Settings instead of a
   `prompt()` dialog (local tools such as time, weather, timers still work without a key).
-* **No way to reach the app from the site.** The build log now links to the app from
-  the nav and a hero button.
+* **The site root did not open the app.** `index.html` now lands visitors straight in
+  the assistant, and the app links to the build-log page.
 * **Dead asset requests** — added `manifest.json` + `icon.svg`, removed the 404
   `sw.js` registration and the broken `kalki-logo.png` reference.
+* **Readable network errors** — a blocked/offline connection now says so instead of a
+  bare `Failed to fetch`, and requests time out instead of hanging.
 * Chat is guarded against overlapping sends, and `matchMedia` usage no longer throws
   in older/limited webviews.
