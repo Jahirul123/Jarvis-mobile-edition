@@ -1404,6 +1404,93 @@ body.is-thinking .send-button {
 /* =========================================================
    Responsive
    ========================================================= */
+
+/* =========================================================
+   Language switcher (English / Hindi / Bengali)
+   ========================================================= */
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  flex: 0 0 auto;
+}
+
+.lang-btn {
+  min-width: 34px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 99px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.lang-btn:hover {
+  color: var(--text);
+  background: rgba(82, 233, 255, 0.1);
+}
+
+.lang-btn[aria-pressed='true'],
+.lang-btn.active {
+  color: #04121c;
+  background: linear-gradient(140deg, var(--cyan), var(--violet));
+  box-shadow: 0 4px 14px rgba(82, 233, 255, 0.3);
+}
+
+:root[data-theme='light'] .lang-btn[aria-pressed='true'] {
+  color: #ffffff;
+}
+
+/* Larger, labelled version used inside Settings */
+.lang-switch--wide {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+  padding: 5px;
+  border-radius: 14px;
+}
+
+.lang-switch--wide .lang-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 6px;
+  border-radius: 10px;
+}
+
+.lang-switch--wide .lang-btn b {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.lang-switch--wide .lang-btn small {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+#lang-current-row {
+  display: block;
+  margin-top: 10px;
+}
+
+#lang-current-row b {
+  color: var(--cyan);
+}
+
 @media (max-width: 900px) {
   .sidebar {
     --sidebar-width: 250px;
@@ -1485,6 +1572,7 @@ body.is-thinking .send-button {
 }
 
 @media (max-width: 420px) {
+  .topbar-title { display: none; }
   .key-row {
     flex-wrap: wrap;
   }
@@ -1626,6 +1714,7 @@ body.is-thinking .send-button {
   .hud-tick { display: none; }
   .hud-label { font-size: 7.5px; letter-spacing: 0.22em; }
   .core-state { display: none; }
+  .lang-btn { min-width: 28px; padding: 4px 6px; font-size: 10px; }
   .welcome {
     padding-top: calc(var(--hero-total) - 26px);
   }
