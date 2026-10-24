@@ -2,7 +2,7 @@
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 // Tried in order when the /models discovery call is unavailable.
 const GEMINI_MODEL_PREFERENCES = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest', 'gemini-1.5-flash'];
-const GEMINI_SYSTEM_INSTRUCTION = 'You are J.A.R.V.I.S, a friendly personal assistant for Vamshi. Reply naturally in a warm Telugu-English mix, using clear concise language. If you do not know, say so plainly.';
+const GEMINI_SYSTEM_INSTRUCTION = 'You are J.A.R.V.I.S, a friendly personal assistant for Jahirul. Reply naturally in a warm Telugu-English mix, using clear concise language. If you do not know, say so plainly.';
 
 const API_KEY_STORAGE = 'jarvis_key';
 let API_KEY = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
