@@ -14,6 +14,7 @@ J.A.R.V.I.S series.
 | `Frontend/blackhole.js` | The animated black hole renderer (WebGL ray-tracer + canvas2d fallback) |
 | `Frontend/manifest.json`, `Frontend/icon.svg` | PWA manifest + app icon |
 | `Frontend/jarvis-build-log.html` | Build-log page (episodes, build flow, links) |
+| `tests/` | jsdom regression checks for the UI, chat flow and Flipkart connector |
 
 The app is a static site — no build step and no server code.
 
@@ -98,6 +99,32 @@ would either be fake or require sending your logged-in session through a
 third-party proxy. Opening the pages in your own browser keeps every credential
 inside Flipkart's origin, and nothing sensitive is written into this app's
 storage.
+
+## The interface
+
+Dark "command deck" by default, with a silver light theme, and one renderer
+(`blackhole.js`) powering the core visual in both.
+
+* **Ambient stage** — three drifting aurora blobs, a scanline wash and a HUD frame
+  around the black hole. The whole background tints with the assistant state
+  (`idle` / `listening` / `thinking` / `speaking` / `error`).
+* **Command palette** — `Ctrl/⌘ K` or the **Commands** button opens a searchable
+  deck: new chat, morning briefing, weather, Bitcoin, Flipkart orders, settings,
+  connected accounts, theme switch, clear chat, build log. Arrow keys move,
+  `↵` runs, `Esc` closes.
+* **Prompt cards** that load a prompt for review, plus one-tap quick chips
+  (Flipkart orders · tech news · 5-min timer · joke) that send immediately.
+* **Chat bubbles** with avatars, sender label and timestamp, glass edges, and a
+  short glow on the newest reply.
+* **Status chips** under the headline show the live core state and whether the
+  Flipkart account is linked.
+* **Toasts** for saved keys, theme changes, connector actions and cleared chats.
+* **Collapsible desktop sidebar** that becomes a 84 px icon rail; the mobile
+  drawer keeps full labels. Compact phones get a tightened layout so the prompt
+  grid stays above the composer.
+* Accessibility kept intact: focus rings, `aria-expanded` on the sidebar toggle,
+  `aria-selected` in the palette, live regions for status text and toasts, and a
+  `prefers-reduced-motion` path that drops the ambient animation.
 
 ## What was fixed in this pass
 

@@ -378,7 +378,8 @@ function displayText(text) {
 
 function setReply(node, text) {
   if (!node) return;
-  node.innerText = displayText(text);
+  const target = (typeof node.querySelector === 'function' && node.querySelector('.msg-text')) || node;
+  target.textContent = displayText(text);
   scrollConversationToBottom();
 }
 
@@ -408,6 +409,17 @@ function closeSidebarOnMobile() {
   }
 }
 
+function syncSidebarToggle() {
+  if (!sidebarToggle) return;
+  const expanded = isMobileViewport()
+    ? document.body.classList.contains('sidebar-open')
+    : !document.body.classList.contains('sidebar-collapsed');
+  sidebarToggle.setAttribute('aria-expanded', String(expanded));
+  const label = expanded ? 'Collapse sidebar' : 'Expand sidebar';
+  sidebarToggle.title = label;
+  sidebarToggle.setAttribute('aria-label', label);
+}
+
 function toggleSidebar() {
   if (isMobileViewport()) {
     const open = !document.body.classList.contains('sidebar-open');
@@ -416,7 +428,10 @@ function toggleSidebar() {
   } else {
     document.body.classList.toggle('sidebar-collapsed');
   }
+  syncSidebarToggle();
 }
+
+syncSidebarToggle();
 
 function switchConversation(id) {
   if (id === ACTIVE_CONVERSATION_ID) {
@@ -435,7 +450,7 @@ function switchConversation(id) {
   localStorage.setItem(ACTIVE_CONVERSATION_KEY, id);
   localStorage.setItem('jarvis_memory', JSON.stringify(MEMORY));
   chat.replaceChildren();
-  MEMORY.forEach(m => add((m.role === 'user' ? 'YOU: ' : 'J.A.R.V.I.S: ') + m.text, m.role === 'user' ? 'user' : 'ai'));
+  MEMORY.forEach(m => add((m.role === 'user' ? 'YOU: ' : 'J.A.R.V.I.S: ') + m.text, m.role === 'user' ? 'user' : 'ai', false, m.ts || 0));
   document.body.classList.toggle('has-conversation', MEMORY.length > 0);
   renderHistoryList();
   scrollConversationToBottom();
@@ -519,6 +534,7 @@ function saveApiKeyFromSettings() {
   setApiKey(value);
   if (apiKeyInput) apiKeyInput.value = '';
   refreshApiKeyUI('Key saved on this device. You can start chatting.');
+  showToast('Gemini key saved on this device.', 'success');
 }
 
 if (apiKeySave) apiKeySave.addEventListener('click', saveApiKeyFromSettings);
@@ -535,6 +551,7 @@ if (apiKeyClear) {
     setApiKey('');
     if (apiKeyInput) apiKeyInput.value = '';
     refreshApiKeyUI('Key removed from this browser.');
+    showToast('Gemini key removed.', 'warn');
   });
 }
 
@@ -593,6 +610,7 @@ const flipkartOpen = document.getElementById('flipkart-open');
 const flipkartDisconnect = document.getElementById('flipkart-disconnect');
 const connectorsOpen = document.getElementById('connectors-open');
 const connectorsGroup = document.getElementById('connectors-group');
+const flipkartStat = document.getElementById('stat-flipkart');
 const FLIPKART_DEFAULT_DETAIL = flipkartDetail ? flipkartDetail.textContent : '';
 
 function relativeTime(timestamp) {
@@ -621,6 +639,10 @@ function renderFlipkartCard() {
   }
   if (flipkartConnect) flipkartConnect.textContent = linked ? 'Reconnect' : 'Connect';
   if (flipkartDisconnect) flipkartDisconnect.hidden = !linked;
+  if (flipkartStat) {
+    flipkartStat.dataset.state = linked ? 'on' : 'off';
+    flipkartStat.innerHTML = '<b>FLIPKART</b> ' + (linked ? 'LINKED' : 'NOT LINKED');
+  }
 }
 
 // Opens a URL in a new tab while keeping this page out of the new tab's
@@ -765,6 +787,7 @@ if (flipkartConnect) {
     flipkartNote.textContent = wasLinked
       ? 'Flipkart is already linked. The login page opened again in a new tab.'
       : 'Flipkart linked. Sign in on the Flipkart tab that just opened — your browser keeps that session and JARVIS reuses it.';
+    showToast(wasLinked ? 'Flipkart already linked.' : 'Flipkart linked — finish signing in.', 'success');
   });
 }
 
@@ -778,29 +801,243 @@ if (flipkartDisconnect) {
   flipkartDisconnect.addEventListener('click', () => {
     unlinkFlipkart();
     if (flipkartNote) flipkartNote.textContent = 'Flipkart unlinked from J.A.R.V.I.S. Nothing was removed from your Flipkart account or this browser’s Flipkart session.';
+    showToast('Flipkart unlinked.', 'warn');
   });
 }
 
-if (connectorsOpen) {
-  connectorsOpen.addEventListener('click', () => {
-    openSettings();
-    if (!connectorsGroup) return;
-    try {
-      connectorsGroup.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
-    } catch (e) {
-      connectorsGroup.scrollIntoView();
+function focusConnectors() {
+  openSettings();
+  if (!connectorsGroup) return;
+  try {
+    connectorsGroup.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+  } catch (e) {
+    connectorsGroup.scrollIntoView();
+  }
+  connectorsGroup.classList.add('is-highlighted');
+  setTimeout(() => connectorsGroup.classList.remove('is-highlighted'), 1700);
+}
+
+if (connectorsOpen) connectorsOpen.addEventListener('click', focusConnectors);
+
+// ===== 2.6 COMMAND PALETTE =====
+// Ctrl/Cmd-K opens a searchable deck of actions: new chat, quick commands,
+// settings, connected accounts and theme. Everything runs through the same
+// functions the UI buttons use, so nothing behaves differently here.
+const palette = document.getElementById('palette');
+const paletteScrim = document.getElementById('palette-scrim');
+const paletteInput = document.getElementById('palette-input');
+const paletteList = document.getElementById('palette-list');
+const paletteButton = document.getElementById('palette-open');
+let paletteEntries = [];
+let paletteCursor = 0;
+
+function runPrompt(text) {
+  const prompt = String(text || '').trim();
+  if (!prompt) return;
+  if (jarvisBusy) {
+    showToast('J.A.R.V.I.S is still working on the last request.', 'warn');
+    return;
+  }
+  closePalette();
+  closeSettings();
+  closeSidebarOnMobile();
+  input.value = '';
+  input.style.height = 'auto';
+  add('YOU: ' + prompt, 'user');
+  askGemini(prompt);
+}
+
+const PALETTE_ICONS = Object.freeze({
+  new: '<path d="M12 5v14M5 12h14"/>',
+  spark: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/>',
+  diamond: '<path d="M12 3.5 20 9l-8 11.5L4 9z"/><path d="M4 9h16M12 3.5 9 9l3 11.5L15 9z"/>',
+  bag: '<path d="M6 8h12l-1.1 12H7.1L6 8Z"/><path d="M9.2 8V6.6a2.8 2.8 0 0 1 5.6 0V8"/>',
+  gear: '<circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a1.7 1.7 0 1 1-2.4 2.4l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a1.7 1.7 0 1 1-3.4 0v-.2a1.7 1.7 0 0 0-2.9-1.2l-.1.1a1.7 1.7 0 1 1-2.4-2.4l.1-.1a1.7 1.7 0 0 0-1.2-2.9H4a1.7 1.7 0 1 1 0-3.4h.2a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a1.7 1.7 0 1 1 2.4-2.4l.1.1a1.7 1.7 0 0 0 2.9-1.2V4a1.7 1.7 0 1 1 3.4 0v.2a1.7 1.7 0 0 0 2.9 1.2l.1-.1a1.7 1.7 0 1 1 2.4 2.4l-.1.1a1.7 1.7 0 0 0 1.2 2.9H20a1.7 1.7 0 1 1 0 3.4h-.2a1.7 1.7 0 0 0-1.4.9Z"/>',
+  link: '<path d="M10.5 13.5a5 5 0 0 0 7.1 0l2.4-2.4a5 5 0 0 0-7.1-7.1l-1.2 1.2"/><path d="M13.5 10.5a5 5 0 0 0-7.1 0l-2.4 2.4a5 5 0 0 0 7.1 7.1l1.2-1.2"/>',
+  moon: '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z"/>',
+  trash: '<path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7m4 3v6m4-6v6"/>',
+  arrow: '<path d="M7 17 17 7M9 7h8v8"/>'
+});
+
+function createPaletteIcon(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.innerHTML = PALETTE_ICONS[name] || PALETTE_ICONS.spark;
+  return svg;
+}
+
+function paletteCommands() {
+  const linked = Boolean(flipkartLink.connected);
+  const light = document.documentElement.dataset.theme === 'light';
+  return [
+    { icon: 'new', label: 'New conversation', hint: 'START', keywords: 'new chat clear start fresh', run: () => startNewConversation() },
+    { icon: 'spark', label: 'Morning briefing', hint: 'RUN', keywords: 'briefing news time weather today', run: () => runPrompt('Jarvis, give me my morning briefing') },
+    { icon: 'sun', label: 'Weather right now', hint: 'RUN', keywords: 'temperature forecast rain', run: () => runPrompt('What is the weather today?') },
+    { icon: 'diamond', label: 'Bitcoin price', hint: 'RUN', keywords: 'crypto market btc', run: () => runPrompt('What is the current Bitcoin price?') },
+    {
+      icon: 'bag',
+      label: linked ? 'Open my Flipkart orders' : 'Link my Flipkart account',
+      hint: 'FLIPKART',
+      keywords: 'flipkart orders cart shopping account kundelu',
+      run: () => runPrompt(linked ? 'my Flipkart orders' : 'connect Flipkart')
+    },
+    { icon: 'gear', label: 'Open settings', hint: 'PANEL', keywords: 'preferences theme key api gemini', run: () => openSettings() },
+    { icon: 'link', label: 'Connected accounts', hint: 'PANEL', keywords: 'flipkart connectors link accounts', run: () => focusConnectors() },
+    {
+      icon: light ? 'moon' : 'sun',
+      label: light ? 'Switch to midnight theme' : 'Switch to silver theme',
+      hint: 'THEME',
+      keywords: 'dark light appearance colour color',
+      run: () => {
+        const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+        applyTheme(next);
+        showToast(next === 'light' ? 'Silver theme enabled.' : 'Midnight theme enabled.');
+      }
+    },
+    { icon: 'trash', label: 'Clear this conversation', hint: 'CLEAR', keywords: 'delete reset memory wipe', run: () => clearBtn.click() },
+    { icon: 'arrow', label: 'Open the build log', hint: 'PAGE', keywords: 'episodes youtube series growthos', run: () => { window.location.href = './jarvis-build-log.html'; } }
+  ];
+}
+
+function buildPaletteItem(command, index) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'palette-item';
+  button.setAttribute('role', 'option');
+  button.setAttribute('aria-selected', String(index === paletteCursor));
+  button.dataset.index = String(index);
+
+  const icon = document.createElement('span');
+  icon.className = 'palette-item-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.appendChild(createPaletteIcon(command.icon));
+
+  const label = document.createElement('span');
+  label.className = 'palette-item-label';
+  label.textContent = command.label;
+
+  const hint = document.createElement('span');
+  hint.className = 'palette-item-hint';
+  hint.textContent = command.hint || '';
+
+  button.append(icon, label, hint);
+  button.addEventListener('mouseenter', () => {
+    paletteCursor = index;
+    highlightPaletteItem();
+  });
+  button.addEventListener('click', () => runPaletteCommand(index));
+  return button;
+}
+
+function renderPalette() {
+  if (!paletteList) return;
+  const query = paletteInput ? paletteInput.value.trim().toLowerCase() : '';
+  const all = paletteCommands();
+  paletteEntries = all.filter(command => !query
+    || command.label.toLowerCase().includes(query)
+    || String(command.keywords || '').toLowerCase().includes(query));
+  paletteCursor = Math.max(0, Math.min(paletteCursor, paletteEntries.length - 1));
+
+  paletteList.replaceChildren();
+  if (!paletteEntries.length) {
+    const empty = document.createElement('p');
+    empty.className = 'palette-empty';
+    empty.textContent = 'No command matches “' + (paletteInput ? paletteInput.value.trim() : '') + '”.';
+    paletteList.appendChild(empty);
+    return;
+  }
+  paletteEntries.forEach((command, index) => paletteList.appendChild(buildPaletteItem(command, index)));
+}
+
+function highlightPaletteItem() {
+  if (!paletteList) return;
+  Array.from(paletteList.querySelectorAll('.palette-item')).forEach((item, index) => {
+    item.setAttribute('aria-selected', String(index === paletteCursor));
+    if (index === paletteCursor) {
+      try { item.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ignore */ }
     }
-    connectorsGroup.classList.add('is-highlighted');
-    setTimeout(() => connectorsGroup.classList.remove('is-highlighted'), 1700);
   });
 }
+
+function runPaletteCommand(index) {
+  const command = paletteEntries[index];
+  if (!command) return;
+  closePalette();
+  try {
+    command.run();
+  } catch (error) {
+    showToast('That command could not run.', 'error');
+  }
+}
+
+function openPalette() {
+  if (!palette || !paletteScrim) return;
+  closeSidebarOnMobile();
+  palette.hidden = false;
+  paletteScrim.hidden = false;
+  document.body.classList.add('palette-open');
+  if (paletteInput) paletteInput.value = '';
+  paletteCursor = 0;
+  renderPalette();
+  setTimeout(() => { if (paletteInput) paletteInput.focus(); }, 20);
+}
+
+function closePalette() {
+  if (!palette || !paletteScrim) return;
+  const wasOpen = !palette.hidden;
+  palette.hidden = true;
+  paletteScrim.hidden = true;
+  document.body.classList.remove('palette-open');
+  if (wasOpen && paletteButton && !isMobileViewport()) paletteButton.focus();
+}
+
+if (paletteButton) paletteButton.addEventListener('click', () => { openPalette(); });
+if (paletteScrim) paletteScrim.addEventListener('click', closePalette);
+if (paletteInput) {
+  paletteInput.addEventListener('input', () => {
+    paletteCursor = 0;
+    renderPalette();
+  });
+  paletteInput.addEventListener('keydown', event => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (!paletteEntries.length) return;
+      paletteCursor = (paletteCursor + 1) % paletteEntries.length;
+      highlightPaletteItem();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!paletteEntries.length) return;
+      paletteCursor = (paletteCursor - 1 + paletteEntries.length) % paletteEntries.length;
+      highlightPaletteItem();
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      runPaletteCommand(paletteCursor);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      closePalette();
+    }
+  });
+}
+
+document.addEventListener('keydown', event => {
+  const key = String(event.key || '').toLowerCase();
+  if ((event.metaKey || event.ctrlKey) && key === 'k') {
+    event.preventDefault();
+    if (palette && !palette.hidden) closePalette();
+    else openPalette();
+    return;
+  }
+  if (event.key === 'Escape' && palette && !palette.hidden) closePalette();
+});
 
 renderFlipkartCard();
 
 renderHistoryList();
 refreshApiKeyUI();
 applyTheme(localStorage.getItem('jarvis_theme') || 'dark');
-MEMORY.forEach(m => add((m.role === 'user' ? 'YOU: ' : 'J.A.R.V.I.S: ') + m.text, m.role === 'user' ? 'user' : 'ai'));
+MEMORY.forEach(m => add((m.role === 'user' ? 'YOU: ' : 'J.A.R.V.I.S: ') + m.text, m.role === 'user' ? 'user' : 'ai', false, m.ts || 0));
 
 // ===== 3. TOOLS (THE HANDS) =====
 async function fetchToolJson(url, options = {}, timeoutMs = 10000) {
@@ -1238,8 +1475,7 @@ async function askGemini(p) {
   try {
     if (isAgentModeRequest(p)) {
       const reply = await runAgent(p);
-      MEMORY.push({ role: 'user', text: p });
-      MEMORY.push({ role: 'model', text: reply });
+      rememberTurn(p, reply);
       saveMemory();
       setReply(replyNode, 'J.A.R.V.I.S: ' + reply);
       setJarvisVisualState('SPEAKING');
@@ -1263,8 +1499,7 @@ async function askGemini(p) {
     if (toolReply) toolReply = telugishToolReply(toolReply);
     if (toolReply) {
       if (!containsSecret) {
-        MEMORY.push({ role: 'user', text: p });
-        MEMORY.push({ role: 'model', text: toolReply });
+        rememberTurn(p, toolReply);
         saveMemory();
       }
       setReply(replyNode, 'J.A.R.V.I.S: ' + toolReply);
@@ -1275,8 +1510,7 @@ async function askGemini(p) {
     }
 
     const reply = await callGemini(p);
-    MEMORY.push({ role: 'user', text: p });
-    MEMORY.push({ role: 'model', text: reply });
+    rememberTurn(p, reply);
     saveMemory();
     setReply(replyNode, 'J.A.R.V.I.S: ' + reply);
     setJarvisVisualState('SPEAKING');
@@ -1676,18 +1910,82 @@ clearBtn.onclick = () => {
   setJarvisVisualState('IDLE');
 };
 
-function add(t, w, force = false) {
+const AI_GLYPH = '✦';
+
+function messageTime(value) {
+  const ts = Number(value) || 0;
+  if (!ts) return '';
+  try {
+    return new Date(ts).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+  } catch (e) {
+    return '';
+  }
+}
+
+function add(t, w, force = false, timestamp) {
   if (w === 'ai' && !force && isTransientActivity(t)) {
     setThinking(true, activityLabel(t));
     return null;
   }
-  const d = document.createElement('div');
-  d.className = 'msg ' + w;
-  d.innerText = displayText(t);
-  chat.appendChild(d);
+  const isUser = w === 'user';
+  const message = document.createElement('div');
+  message.className = 'msg ' + (isUser ? 'user' : 'ai');
+
+  const avatar = document.createElement('span');
+  avatar.className = 'msg-avatar';
+  avatar.setAttribute('aria-hidden', 'true');
+  avatar.textContent = isUser ? 'J' : AI_GLYPH;
+
+  const body = document.createElement('div');
+  body.className = 'msg-body';
+
+  const meta = document.createElement('div');
+  meta.className = 'msg-meta';
+  const who = document.createElement('span');
+  who.className = 'msg-who';
+  who.textContent = isUser ? 'YOU' : 'J.A.R.V.I.S';
+  meta.appendChild(who);
+  const stamp = messageTime(timestamp === undefined ? Date.now() : timestamp);
+  if (stamp) {
+    const time = document.createElement('span');
+    time.className = 'msg-time';
+    time.textContent = stamp;
+    meta.appendChild(time);
+  }
+
+  const text = document.createElement('div');
+  text.className = 'msg-text';
+  text.textContent = displayText(t);
+
+  body.append(meta, text);
+  message.append(avatar, body);
+  chat.appendChild(message);
   document.body.classList.toggle('has-conversation', chat.children.length > 0);
   scrollConversationToBottom();
-  return d;
+  return message;
+}
+
+function rememberTurn(userText, modelText) {
+  const ts = Date.now();
+  MEMORY.push({ role: 'user', text: userText, ts });
+  MEMORY.push({ role: 'model', text: modelText, ts });
+}
+
+/* ---- toast notifications ---- */
+const toastStack = document.getElementById('toast-stack');
+
+function showToast(message, tone = 'info', duration = 2800) {
+  if (!toastStack || !message) return;
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.dataset.tone = tone;
+  toast.textContent = message;
+  toastStack.appendChild(toast);
+  while (toastStack.children.length > 3) toastStack.firstElementChild.remove();
+  setTimeout(() => {
+    toast.classList.add('is-leaving');
+    setTimeout(() => toast.remove(), 260);
+  }, duration);
 }
 
 document.getElementById('new-chat').addEventListener('click', startNewConversation);
@@ -1700,7 +1998,10 @@ sidebarBackdrop.addEventListener('click', () => {
 settingsOpen.addEventListener('click', openSettings);
 settingsClose.addEventListener('click', closeSettings);
 settingsScrim.addEventListener('click', closeSettings);
-themeSelect.addEventListener('change', () => applyTheme(themeSelect.value));
+themeSelect.addEventListener('change', () => {
+  applyTheme(themeSelect.value);
+  showToast(themeSelect.value === 'light' ? 'Silver theme enabled.' : 'Midnight theme enabled.');
+});
 clearMemorySetting.addEventListener('click', () => {
   clearBtn.click();
   closeSettings();
@@ -1724,9 +2025,15 @@ input.addEventListener('input', () => {
 });
 
 document.querySelectorAll('[data-prompt]').forEach(button => button.addEventListener('click', () => {
-  input.value = button.dataset.prompt || '';
-  input.focus();
+  const prompt = button.dataset.prompt || '';
+  if (button.classList.contains('quick-chip')) {
+    runPrompt(prompt);
+    return;
+  }
+  input.value = prompt;
   input.dispatchEvent(new Event('input'));
+  input.focus();
+  showToast('Prompt loaded — press Enter to send.', 'info', 1900);
 }));
 
 // ===== 8. CORE VISUAL (animated black hole) =====
@@ -1746,6 +2053,9 @@ function initOrbs() {
 function setJarvisVisualState(state) {
   const key = String(state || 'IDLE').toLowerCase();
   if (coreVisual) coreVisual.setState(key);
+  document.documentElement.dataset.coreState = key;
+  const statCore = document.getElementById('stat-core');
+  if (statCore) statCore.textContent = 'CORE ' + key.toUpperCase();
   const stage = document.getElementById('blackhole-stage');
   if (stage) stage.dataset.state = key;
   const readout = document.getElementById('core-state');
