@@ -10,7 +10,7 @@ J.A.R.V.I.S series.
 | `index.html` | Site entry point → opens the app in `Frontend/` |
 | `Frontend/index.html` | The J.A.R.V.I.S app shell (chat, voice, wake word, history, settings) |
 | `Frontend/style.css` | App theme: dark/light, mobile drawer sidebar, composer, settings panel |
-| `Frontend/script.js` | App logic: Gemini chat, tools, speech, wake word, history, core visual states |
+| `Frontend/script.js` | App logic: Gemini chat, languages, tools, speech, wake word, history, core visual states |
 | `Frontend/blackhole.js` | The animated black hole renderer (WebGL ray-tracer + canvas2d fallback) |
 | `Frontend/manifest.json`, `Frontend/icon.svg` | PWA manifest + app icon |
 | `Frontend/jarvis-build-log.html` | Build-log page (episodes, build flow, links) |
@@ -52,6 +52,26 @@ The hero of the interface is a real-time black hole, not a video or a sprite.
 * On pointer-capable devices the camera sways slightly with the cursor, so the disk
   visibly orbits rather than spinning in place.
 
+## Languages — English, Hindi, Bengali
+
+J.A.R.V.I.S speaks **English, Hindi (हिंदी) and Bengali (বাংলা)** only.
+
+* **Auto-detect** — Hindi (Devanagari) and Bengali script in your message always win, so
+  typing `मौसम कैसा है` answers in Hindi and `আবহাওয়া কেমন` answers in Bengali.
+* **Switcher** — `EN | हिं | বাং` in the topbar (and a bigger version in Settings) sets the
+  default language. Plain English text then follows the chosen language, so picking
+  हिंदी keeps answers in Hindi even when you type English. The choice is saved in
+  `localStorage` under `jarvis_lang`.
+* **Everything follows the language**: chat replies (via the Gemini system instruction),
+  the text-to-speech voice (`hi-IN` / `bn-IN` / `en-IN`), speech-recognition input,
+  local tool replies (time, weather, timers, jokes, currency, search …), the wake-word
+  prompt and the timer announcement.
+* Recognition phrases for time, weather, timer and translate accept English, Hindi and
+  Bengali wording, and the translate tool targets `en`/`hi`/`bn` (`translate to bengali …`).
+
+Telugu code, strings and triggers were removed completely — `grep` for
+`[\u0C00-\u0C7F]` in `Frontend/` returns nothing.
+
 ## API key
 
 The app talks to Google's Gemini API from the browser. On first use:
@@ -92,5 +112,9 @@ Google AI Studio and create a new one.
   `sw.js` registration and the broken `kalki-logo.png` reference.
 * **Readable network errors** — a blocked/offline connection now says so instead of a
   bare `Failed to fetch`, and requests time out instead of hanging.
+* **Retries on transient Gemini errors** — 429/5xx responses are retried up to three
+  times with exponential backoff (≈0.7s, 1.8s, 4.5s) before showing a friendly message,
+  instead of failing on the first hiccup. Missing/unsupported models still switch models
+  immediately.
 * Chat is guarded against overlapping sends, and `matchMedia` usage no longer throws
   in older/limited webviews.
