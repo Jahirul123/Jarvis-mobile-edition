@@ -1450,169 +1450,27 @@ document.querySelectorAll('[data-prompt]').forEach(button => button.addEventList
   input.dispatchEvent(new Event('input'));
 }));
 
-// ===== 8. CORE VISUAL (self-contained canvas orb) =====
-class JarvisOrb {
-  constructor(container) {
-    this.container = container;
-    this.state = 'IDLE';
-    this.speed = 0.5;
-    this.targetSpeed = 0.5;
-    this.color = '#52e9ff';
-    this.targetColor = '#52e9ff';
-    this.angle = 0;
-    this.pulse = 0;
-    this.frame = null;
-    this.reduceMotion = prefersReducedMotion();
-
-    this.canvas = document.createElement('canvas');
-    this.canvas.setAttribute('aria-hidden', 'true');
-    this.canvas.className = 'jarvis-orb-canvas';
-    this.ctx = this.canvas.getContext ? this.canvas.getContext('2d') : null;
-    container.replaceChildren(this.canvas);
-    if (!this.ctx) return;
-
-    this.resize = this.resize.bind(this);
-    this.render = this.render.bind(this);
-    this.resize();
-    window.addEventListener('resize', this.resize);
-    this.start();
-  }
-
-  resize() {
-    if (!this.canvas) return;
-    const box = this.container.getBoundingClientRect();
-    const size = Math.max(96, Math.round(Math.min(box.width || 150, box.height || 150)));
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.size = size;
-    this.canvas.width = Math.round(size * dpr);
-    this.canvas.height = Math.round(size * dpr);
-    this.canvas.style.width = size + 'px';
-    this.canvas.style.height = size + 'px';
-    if (this.ctx) this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (this.reduceMotion) this.render();
-  }
-
-  start() {
-    if (this.frame || this.reduceMotion) { this.render(); return; }
-    const step = timestamp => {
-      this.frame = window.requestAnimationFrame(step);
-      const delta = this.lastTimestamp ? Math.min(timestamp - this.lastTimestamp, 64) : 16;
-      this.lastTimestamp = timestamp;
-      this.speed += (this.targetSpeed - this.speed) * 0.06;
-      this.angle = (this.angle + (delta / 1000) * (0.5 + this.speed)) % (Math.PI * 2);
-      this.pulse = (this.pulse + (delta / 1000) * (0.8 + this.speed)) % (Math.PI * 2);
-      this.render();
-    };
-    this.frame = window.requestAnimationFrame(step);
-  }
-
-  stop() {
-    if (this.frame) window.cancelAnimationFrame(this.frame);
-    this.frame = null;
-  }
-
-  setSpeed(value) { this.targetSpeed = Number(value) || 0; }
-
-  setColor(value) {
-    if (value) this.color = value;
-    this.targetColor = value || this.color;
-  }
-
-  setState(state) {
-    this.state = state || 'IDLE';
-    this.reduceMotion = prefersReducedMotion();
-    if (this.reduceMotion) { this.stop(); this.render(); }
-    else this.start();
-  }
-
-  render() {
-    const ctx = this.ctx;
-    if (!ctx) return;
-    const size = this.size || 150;
-    const center = size / 2;
-    const radius = center * 0.92;
-    const accent = this.targetColor || this.color;
-    const breathe = this.reduceMotion ? 1 : 1 + Math.sin(this.pulse) * 0.045;
-
-    ctx.clearRect(0, 0, size, size);
-    ctx.save();
-    ctx.translate(center, center);
-
-    const glow = ctx.createRadialGradient(0, 0, radius * 0.15, 0, 0, radius);
-    glow.addColorStop(0, this.hexToRgba(accent, 0.45));
-    glow.addColorStop(0.55, this.hexToRgba(accent, 0.12));
-    glow.addColorStop(1, this.hexToRgba(accent, 0));
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.scale(breathe, breathe);
-
-    for (let ring = 0; ring < 3; ring++) {
-      const ringRadius = radius * (0.46 + ring * 0.16);
-      ctx.save();
-      ctx.rotate(this.angle * (ring % 2 === 0 ? 1 : -0.7) + ring * 1.1);
-      ctx.strokeStyle = this.hexToRgba(accent, 0.7 - ring * 0.16);
-      ctx.lineWidth = Math.max(1, size / 150);
-      ctx.beginPath();
-      ctx.arc(0, 0, ringRadius, 0, Math.PI * (1.15 + ring * 0.12));
-      ctx.stroke();
-      ctx.fillStyle = this.hexToRgba(accent, 0.95);
-      ctx.beginPath();
-      ctx.arc(ringRadius, 0, Math.max(1.5, size / 90), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    const coreGlow = ctx.createRadialGradient(0, 0, 0, 0, 0, radius * 0.44);
-    coreGlow.addColorStop(0, '#ffffff');
-    coreGlow.addColorStop(0.32, this.hexToRgba(accent, 0.98));
-    coreGlow.addColorStop(1, this.hexToRgba(accent, 0.05));
-    ctx.fillStyle = coreGlow;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius * 0.44, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.restore();
-  }
-
-  hexToRgba(hex, alpha) {
-    const value = String(hex || '').replace('#', '');
-    const full = value.length === 3 ? value.split('').map(c => c + c).join('') : value.padEnd(6, '0').slice(0, 6);
-    const number = parseInt(full, 16);
-    const red = (number >> 16) & 255;
-    const green = (number >> 8) & 255;
-    const blue = number & 255;
-    return 'rgba(' + red + ', ' + green + ', ' + blue + ', ' + alpha + ')';
-  }
-}
-
-const JARVIS_STATES = {
-  IDLE: { speed: 0.5, color: '#52e9ff' },
-  LISTENING: { speed: 1.6, color: '#3ef2a0' },
-  THINKING: { speed: 3.2, color: '#ffb44a' },
-  SPEAKING: { speed: 1.1, color: '#7bd8ff' },
-  ERROR: { speed: 0.2, color: '#ff5f7a' }
-};
-
-let orbInstance = null;
+// ===== 8. CORE VISUAL (animated black hole) =====
+// The renderer lives in blackhole.js (WebGL, with a canvas2d fallback).
+let coreVisual = null;
 
 function initOrbs() {
-  const container = document.getElementById('jarvis-core-container');
-  if (!container || orbInstance) return;
-  orbInstance = new JarvisOrb(container);
+  const container = document.getElementById('blackhole-stage');
+  if (!container || coreVisual) return;
+  if (!window.JarvisBlackHole) {
+    console.warn('J.A.R.V.I.S: black hole renderer unavailable.');
+    return;
+  }
+  coreVisual = window.JarvisBlackHole.create(container, { camY: 4.9, camZ: 15.5, fov: 0.62 });
 }
 
 function setJarvisVisualState(state) {
-  const preset = JARVIS_STATES[state] || JARVIS_STATES.IDLE;
-  if (orbInstance) {
-    orbInstance.setState(state);
-    orbInstance.setSpeed(preset.speed);
-    orbInstance.setColor(preset.color);
-  }
-  const container = document.getElementById('jarvis-core-container');
-  if (container) container.dataset.state = String(state || 'IDLE').toLowerCase();
+  const key = String(state || 'IDLE').toLowerCase();
+  if (coreVisual) coreVisual.setState(key);
+  const stage = document.getElementById('blackhole-stage');
+  if (stage) stage.dataset.state = key;
+  const readout = document.getElementById('core-state');
+  if (readout) readout.innerHTML = '<i class="core-state-dot"></i> CORE · ' + key.toUpperCase();
 }
 
 function bootCoreVisual() {
