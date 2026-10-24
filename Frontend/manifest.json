@@ -1,0 +1,28 @@
+{
+  "name": "J.A.R.V.I.S — Personal AI",
+  "short_name": "J.A.R.V.I.S",
+  "description": "Personal AI assistant with voice, memory and everyday tools.",
+  "id": "./",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#070b1a",
+  "theme_color": "#070b1a",
+  "lang": "en-IN",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

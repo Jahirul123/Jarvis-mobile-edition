@@ -6,37 +6,16 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b0d12">
+  <meta name="theme-color" content="#070b1a">
   <meta name="description" content="J.A.R.V.I.S personal AI assistant">
   <title>J.A.R.V.I.S — Personal AI</title>
   
-  <!-- Existing CSS -->
-  <link rel="stylesheet" href="style.css?v=jarvis-stage-grid-scroll-v8-20260930-final">
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icon.svg">
 
-  <!-- 👇 ORBS LIBRARY ADDED HERE 👇 -->
-  <script src="https://cdn.jsdelivr.net/npm/orbs@latest/dist/orbs.min.js"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/orbs@latest/dist/orbs.css">
-  
-  <!-- 👇 INLINE STYLE FOR THE NEW ORB CONTAINER 👇 -->
-  <style>
-    /* Container for the live Orb */
-    #jarvis-core-container {
-      width: 150px;       /* Size of the orb */
-      height: 150px;
-      margin: 0 auto 20px auto; /* Center it horizontally */
-      position: relative;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
-    
-    /* Ensure canvas inside looks good */
-    #jarvis-core-container canvas {
-      border-radius: 50%;
-      box-shadow: 0 0 30px rgba(0, 255, 255, 0.4); /* Cyan Glow */
-      filter: drop-shadow(0 0 10px rgba(0, 255, 255, 0.6));
-    }
-  </style>
+  <!-- App styles -->
+  <link rel="stylesheet" href="style.css?v=20261024-layout-fix">
 </head>
 <body>
   <div class="app-shell">
@@ -66,6 +45,10 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 15 .1.1a1.7 1.7 0 0 1-2.4 2.4l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a1.7 1.7 0 0 1-3.4 0v-.2a1.7 1.7 0 0 0-2.9-1.2l-.1.1a1.7 1.7 0 0 1-2.4-2.4l.1-.1a1.7 1.7 0 0 0-1.2-2.9H4a1.7 1.7 0 0 1 0-3.4h.2a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a1.7 1.7 0 0 1 2.4-2.4l.1.1a1.7 1.7 0 0 0 2.9-1.2V2a1.7 1.7 0 0 1 3.4 0v.2a1.7 1.7 0 0 0 2.9 1.2l.1-.1a1.7 1.7 0 0 1 2.4 2.4l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a1.7 1.7 0 0 1 0 3.4h-.2a1.7 1.7 0 0 0-1.2 2.9Z"/></svg>
           <span>Settings</span>
         </button>
+        <a class="sidebar-link" href="../github_index.html">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v18H6.5A2.5 2.5 0 0 1 4 18.5zM8 7h8M8 11h6"/></svg>
+          <span>Build log</span>
+        </a>
         <div class="profile-row"><span class="profile-avatar">V</span><span class="profile-name">Vamshi</span><span class="profile-label">PERSONAL</span></div>
       </div>
     </aside>
@@ -81,7 +64,6 @@
         <div class="topbar-actions">
           <span class="ready-badge"><span class="ready-dot"></span> READY</span>
           
-            <!-- 👇 NEW WAKE WORD BUTTON ADDED HERE 👇 -->
           <button class="icon-button wake-button" id="wake-btn" type="button" aria-label="Toggle Wake Word" title="Listen for 'Hey Jarvis'">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
@@ -90,10 +72,8 @@
             </svg>
           </button>
           
-          <!-- Status Text for Wake Mode (Optional but good for UX) -->
-          <span id="wake-status" style="font-size: 0.7rem; color: #888; margin-right: 5px;">WAKE: OFF</span>
+          <span id="wake-status" class="wake-status">WAKE: OFF</span>
 
-          <!-- Existing Clear Button -->
           <button class="icon-button clear-button" id="clear-btn" type="button" aria-label="Clear current conversation" title="Clear current conversation">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7m4 3v6m4-6v6"/></svg>
           </button>
@@ -103,7 +83,6 @@
       <section class="conversation-stage" id="conversation-stage" aria-label="Conversation" tabindex="0">
         <div class="welcome" id="welcome">
           
-          <!-- 👇 OLD STATIC HERO-ORB REPLACED BY LIVE CANVAS CONTAINER 👇 -->
           <div id="jarvis-core-container" aria-hidden="true">
              <!-- JavaScript will inject the <canvas> here automatically -->
           </div>
@@ -159,11 +138,21 @@
     <aside class="settings-panel" id="settings-panel" aria-labelledby="settings-title" aria-modal="true" role="dialog" hidden>
       <div class="settings-header"><div><p class="eyebrow">PREFERENCES</p><h2 id="settings-title">Settings</h2></div><button class="icon-button" id="settings-close" type="button" aria-label="Close settings">×</button></div>
       <div class="settings-group"><label for="theme-select">Appearance</label><p>Set the tone of your workspace.</p><select id="theme-select"><option value="dark">Midnight · dark</option><option value="light">Silver · light</option></select></div>
+      <div class="settings-group">
+        <label for="api-key-input">Gemini API key</label>
+        <p>Your key is stored only in this browser and is sent directly to Google's Gemini API.</p>
+        <div class="key-row">
+          <input id="api-key-input" type="password" placeholder="Paste your Gemini API key" autocomplete="off" spellcheck="false" aria-describedby="api-key-status">
+          <button class="primary-button" id="api-key-save" type="button">Save</button>
+          <button class="ghost-button" id="api-key-clear" type="button">Forget</button>
+        </div>
+        <span class="key-status" id="api-key-status" role="status" aria-live="polite"></span>
+      </div>
       <div class="settings-group"><strong>Conversation history</strong><p>Your conversations are saved in this browser profile.</p></div>
       <div class="settings-bottom"><button class="danger-button" id="clear-memory-setting" type="button">Clear current conversation</button><p>J.A.R.V.I.S · Personal AI</p></div>
     </aside>
   </div>
 
-  <script src="script.js?v=gemini38-wake-loop-20261007-r5"></script>
+  <script src="script.js?v=20261024-gemini-fix"></script>
 </body>
 </html>
